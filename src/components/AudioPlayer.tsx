@@ -20,7 +20,6 @@ import {
 } from 'lucide-react';
 import { formatTime } from '../utils/timer';
 import { parseStoredJson } from '../utils/storage';
-import { ambientSound } from '../utils/audio';
 import {
   parseYouTubeSource,
   getNextTrackIndex,
@@ -41,10 +40,9 @@ declare global {
 export interface TrackItem {
   id: string;
   title: string;
-  sourceType: 'youtube-video' | 'youtube-playlist' | 'ambient';
+  sourceType: 'youtube-video' | 'youtube-playlist';
   youtubeId?: string;
   playlistId?: string;
-  ambientMode?: 'rain' | 'drone' | 'whitenoise';
   author?: string;
 }
 
@@ -64,10 +62,10 @@ function normalizeQueue(value: unknown): TrackItem[] {
     if (!item || typeof item !== 'object') return false;
     const track = item as Partial<TrackItem>;
     if (typeof track.id !== 'string' || typeof track.title !== 'string') return false;
-    if (!['youtube-video', 'youtube-playlist', 'ambient'].includes(track.sourceType || '')) return false;
+    if (!['youtube-video', 'youtube-playlist'].includes(track.sourceType || '')) return false;
     if (track.sourceType === 'youtube-video') return typeof track.youtubeId === 'string';
     if (track.sourceType === 'youtube-playlist') return typeof track.playlistId === 'string';
-    return ['rain', 'drone', 'whitenoise'].includes(track.ambientMode || '');
+    return false;
   });
 }
 
@@ -154,8 +152,6 @@ export function AudioPlayer() {
   // Update volume
   useEffect(() => {
     const effectiveVol = isMuted ? 0 : volume;
-    ambientSound.setVolume(effectiveVol / 100);
-
     if (ytPlayerRef.current && typeof ytPlayerRef.current.setVolume === 'function') {
       try {
         ytPlayerRef.current.setVolume(effectiveVol);
@@ -297,6 +293,7 @@ export function AudioPlayer() {
     if (index < 0 || index >= effectiveQueue.length) return;
     setCurrentTrackIndex(index);
     const track = effectiveQueue[index];
+    if (!track) return;
     setCurrentTime(0);
     setDuration(0);
     setSeekPreview(0);
@@ -313,21 +310,7 @@ export function AudioPlayer() {
       setExpandedPlaylistId(track.id);
     }
 
-    if (track.sourceType === 'ambient') {
-      if (ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
-        try {
-          ytPlayerRef.current.pauseVideo();
-        } catch {}
-      }
-      setLiveTitle(track.title);
-      if (track.ambientMode === 'rain') ambientSound.playRain();
-      else if (track.ambientMode === 'drone') ambientSound.playDrone();
-      else if (track.ambientMode === 'whitenoise') ambientSound.playWhiteNoise();
-      setIsPlaying(true);
-    } else {
-      ambientSound.stop();
-      loadYouTubeSource(track);
-    }
+    loadYouTubeSource(track);
   };
 
   const loadYouTubeSource = (track: TrackItem) => {
@@ -401,7 +384,8 @@ export function AudioPlayer() {
         setPlaybackError('This video is unavailable and there are no more playable tracks.');
         return;
       }
-      playTrackAtIndexRef.current(candidates[0]);
+      const nextCandidate = candidates[0];
+      if (nextCandidate !== undefined) playTrackAtIndexRef.current(nextCandidate);
     };
 
     // If player already exists, use existing instance methods
@@ -473,7 +457,7 @@ export function AudioPlayer() {
   useEffect(() => {
     if (isPlaying) {
       timerIntervalRef.current = window.setInterval(() => {
-        if (currentTrack?.sourceType !== 'ambient' && ytPlayerRef.current) {
+        if (currentTrack && ytPlayerRef.current) {
           try {
             if (typeof ytPlayerRef.current.getCurrentTime === 'function') {
               const curr = ytPlayerRef.current.getCurrentTime() || 0;
@@ -493,8 +477,6 @@ export function AudioPlayer() {
               setNativePlaylistIndex(ytPlayerRef.current.getPlaylistIndex());
             }
           } catch {}
-        } else {
-          setCurrentTime((prev) => prev + 1);
         }
       }, 1000);
     } else {
@@ -518,18 +500,14 @@ export function AudioPlayer() {
     }
 
     if (isPlaying) {
-      if (currentTrack.sourceType === 'ambient') {
-        ambientSound.stop();
-      } else if (ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
+      if (ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
         try {
           ytPlayerRef.current.pauseVideo();
         } catch {}
       }
       setIsPlaying(false);
     } else {
-      if (currentTrack.sourceType === 'ambient') {
-        playTrackAtIndex(currentTrackIndex);
-      } else if (ytPlayerRef.current && typeof ytPlayerRef.current.playVideo === 'function') {
+      if (ytPlayerRef.current && typeof ytPlayerRef.current.playVideo === 'function') {
         try {
           const playerState = typeof ytPlayerRef.current.getPlayerState === 'function'
             ? ytPlayerRef.current.getPlayerState()
@@ -554,9 +532,7 @@ export function AudioPlayer() {
 
   // Stop Playback
   const handleStop = () => {
-    if (currentTrack?.sourceType === 'ambient') {
-      ambientSound.stop();
-    } else if (ytPlayerRef.current && typeof ytPlayerRef.current.stopVideo === 'function') {
+    if (ytPlayerRef.current && typeof ytPlayerRef.current.stopVideo === 'function') {
       try {
         ytPlayerRef.current.stopVideo();
       } catch {}
@@ -580,7 +556,7 @@ export function AudioPlayer() {
   const handleCycleRepeat = () => {
     const modes: RepeatMode[] = ['off', 'all', 'one'];
     const nextIdx = (modes.indexOf(repeatMode) + 1) % modes.length;
-    const nextMode = modes[nextIdx];
+    const nextMode = modes[nextIdx] ?? 'off';
     setRepeatMode(nextMode);
 
     if (ytPlayerRef.current && typeof ytPlayerRef.current.setLoop === 'function') {
@@ -969,7 +945,7 @@ export function AudioPlayer() {
             onPointerUp={(e) => commitSeek(Number(e.currentTarget.value))}
             onKeyUp={(e) => commitSeek(Number(e.currentTarget.value))}
             onBlur={(e) => isSeeking && commitSeek(Number(e.currentTarget.value))}
-            disabled={!currentTrack || currentTrack.sourceType === 'ambient' || isLive || duration <= 0}
+            disabled={!currentTrack || isLive || duration <= 0}
             className="retro-progress-slider w-full disabled:opacity-40"
             style={{ '--seek-progress': `${seekPercent}%` } as React.CSSProperties}
             aria-label={isLive ? 'Live stream progress is not seekable' : 'Seek through current track'}

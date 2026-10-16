@@ -1,6 +1,6 @@
 # Pomodoro Focus ⏱️
 
-A retro pixel-style Pomodoro productivity timer with customizable intervals, task management, ambient background audio / YouTube player, cross-device task sync with Cloudflare, and weekly productivity data visualization.
+A retro pixel-style Pomodoro productivity timer with customizable intervals, task management, a YouTube audio player, cross-device task sync with Cloudflare, and weekly productivity visualization.
 
 **Live app:** [pomoflow.pages.dev](https://pomoflow.pages.dev)
 
@@ -56,7 +56,7 @@ A retro pixel-style Pomodoro productivity timer with customizable intervals, tas
 - **Styling**: [Tailwind CSS v4](https://tailwindcss.com/)
 - **Charts**: [Recharts](https://recharts.org/)
 - **Icons**: [Lucide React](https://lucide.dev/)
-- **Audio**: Web Audio API (Synthesizers & 8-bit alerts) + YouTube Iframe Player API
+- **Audio**: Web Audio API (8-bit timer alerts) + YouTube Iframe Player API
 - **Backend / Edge Functions**:
   - Local Dev & Container: Node.js + [Express](https://expressjs.com/) (`server.ts`)
   - Cloudflare Pages: [Cloudflare Pages Functions](https://developers.cloudflare.com/pages/platform/functions/) (`/functions/api/tasks.ts`) + [Cloudflare D1](https://developers.cloudflare.com/d1/) (`TASKS_DB`)

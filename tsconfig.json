@@ -11,6 +11,8 @@
       "DOM.Iterable"
     ],
     "skipLibCheck": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
     "moduleResolution": "bundler",
     "isolatedModules": true,
     "moduleDetection": "force",

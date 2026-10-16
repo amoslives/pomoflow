@@ -7,7 +7,8 @@ React 19 + Vite + Tailwind v4 Pomodoro timer SPA. One backend API (`/api/tasks`)
 - Install: `npm install` (lockfile is `package-lock.json`).
 - Dev: `npm run dev` — runs `tsx server.ts`, a full-stack server (Express + Vite middleware) on port 3000 (`PORT` env to override). Do not run `vite` directly.
 - Typecheck / lint: `npm run lint` = `tsc --noEmit`. There is no ESLint.
-- Tests: `npm test` = `node --test src/utils/*.test.ts` (node:test runner, runs `.ts` via type stripping — needs Node ≥23.6). Single file: `node --test src/utils/timer.test.ts`. Tests import only local utils, so they run without `node_modules`.
+- Unit/API tests: `npm test` = Node's native test runner over `src/utils/*.test.ts` and `functions/api/*.test.ts` (needs Node ≥23.6). Single file: `node --test src/utils/timer.test.ts`.
+- Browser tests: `npm run test:e2e` (Playwright, desktop and mobile Chromium). Full gate: `npm run check` = strict typecheck, unit/API tests, build, then browser tests.
 - Build: `npm run build` → `dist/` (Cloudflare Pages output dir).
 
 **Do not use bun on the maintainer's machine.** The network hands out a broken IPv6 route; curl/Node recover via Happy Eyeballs, but bun's HTTP client does not — `bun install` hangs forever at 0% CPU with sockets stuck in `SYN_SENT`. Diagnosed 2026-10-16.

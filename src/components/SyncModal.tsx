@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Cloud, Check, RefreshCw, Copy, Share2, ShieldAlert, X, Key } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Cloud, Check, RefreshCw, Copy, QrCode, Share2, ShieldAlert, X, Key } from 'lucide-react';
 import { isSecureSyncKey, isValidSyncKey, normalizeSyncKey, generateSyncKey } from '../utils/sync';
 
 interface SyncModalProps {
@@ -28,8 +28,9 @@ export function SyncModal({
   const [inputKey, setInputKey] = useState(syncKey || '');
   const [copied, setCopied] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-
-  if (!isOpen) return null;
+  const [showQr, setShowQr] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [qrLoading, setQrLoading] = useState(false);
 
   const handleConnect = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -53,6 +54,13 @@ export function SyncModal({
   const shareableUrl = typeof window !== 'undefined' && syncKey
     ? `${window.location.origin}${window.location.pathname}#sync=${encodeURIComponent(syncKey)}`
     : '';
+
+  useEffect(() => {
+    setShowQr(false);
+    setQrDataUrl('');
+  }, [shareableUrl]);
+
+  if (!isOpen) return null;
 
   const handleCopyLink = async () => {
     if (!shareableUrl) return;
@@ -82,6 +90,31 @@ export function SyncModal({
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
         setErrorMsg('Could not open the share menu. You can still copy the link.');
       }
+    }
+  };
+
+  const handleToggleQr = async () => {
+    if (showQr) {
+      setShowQr(false);
+      return;
+    }
+    if (!shareableUrl) return;
+    setQrLoading(true);
+    setErrorMsg('');
+    try {
+      const { toDataURL } = await import('qrcode');
+      const dataUrl = await toDataURL(shareableUrl, {
+        width: 256,
+        margin: 3,
+        errorCorrectionLevel: 'M',
+        color: { dark: '#171717', light: '#ffffff' },
+      });
+      setQrDataUrl(dataUrl);
+      setShowQr(true);
+    } catch {
+      setErrorMsg('Could not generate the QR code. Use Share Link or Copy Link instead.');
+    } finally {
+      setQrLoading(false);
     }
   };
 
@@ -230,7 +263,7 @@ export function SyncModal({
                 value={shareableUrl}
                 className="flex-1 px-2 py-1 text-xs font-mono-tech bg-white dark:bg-neutral-800 border border-neutral-400 dark:border-neutral-600 text-neutral-800 dark:text-neutral-200 truncate select-all"
               />
-              <div className="flex items-center gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={handleShareLink}
@@ -247,7 +280,24 @@ export function SyncModal({
                   {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{copied ? 'Copied!' : 'Copy Link'}</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={handleToggleQr}
+                  disabled={qrLoading}
+                  className="col-span-2 px-3 py-1.5 border border-neutral-500 text-xs uppercase flex items-center justify-center gap-1.5 cursor-pointer hover:bg-neutral-200 dark:hover:bg-neutral-700 disabled:opacity-50"
+                >
+                  <QrCode className="w-3.5 h-3.5" />
+                  <span>{qrLoading ? 'Generating...' : showQr ? 'Hide QR Code' : 'Show QR Code'}</span>
+                </button>
               </div>
+              {showQr && qrDataUrl && (
+                <div className="p-3 bg-white border border-neutral-400 flex flex-col items-center">
+                  <img src={qrDataUrl} alt="QR code containing the Pomoflow pairing link" className="w-56 h-56 max-w-full" />
+                  <p className="mt-2 text-xs text-neutral-700 font-mono-tech text-center">
+                    Scan with the other device's camera.
+                  </p>
+                </div>
+              )}
             </div>
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 italic">
               Send or open this link on your phone, laptop, or work desktop to pair tasks automatically.

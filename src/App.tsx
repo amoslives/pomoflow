@@ -10,7 +10,7 @@ import { TaskList } from './components/TaskList';
 import { AudioPlayer } from './components/AudioPlayer';
 import { SyncModal } from './components/SyncModal';
 import { WeeklyStats } from './components/WeeklyStats';
-import { Task, createTask, toggleTask, updateTaskTitle, deleteTask } from './utils/tasks';
+import { Task, createTask, toggleTask, updateTaskTitle, deleteTask, normalizeTasks } from './utils/tasks';
 import { mergeTasks, isValidSyncKey, normalizeSyncKey } from './utils/sync';
 import { recordPomodoroCompletion, getSampleWeeklyStats } from './utils/stats';
 import { playWorkCompleteChime, playBreakCompleteChime, playClickSound } from './utils/audio';
@@ -118,35 +118,55 @@ export default function App() {
     const saved = localStorage.getItem('pomodoro_tasks');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        return normalizeTasks(JSON.parse(saved));
       } catch {
         return [];
       }
     }
     return [];
   });
+  const tasksRef = useRef(tasks);
 
   // Save tasks to local storage
   useEffect(() => {
+    tasksRef.current = tasks;
     localStorage.setItem('pomodoro_tasks', JSON.stringify(tasks));
   }, [tasks]);
 
   // Push tasks to Cloudflare / Server
+  const syncRevisionRef = useRef(0);
+
   const pushTasksToServer = useCallback(async (key: string, tasksToPush: Task[]) => {
     const normalizedKey = normalizeSyncKey(key);
     if (!normalizedKey || !isValidSyncKey(normalizedKey)) return;
     setSyncStatus('syncing');
     setSyncError(null);
     try {
-      const res = await fetch('/api/tasks', {
+      const postTasks = (tasksForRequest: Task[], baseRevision: number) => fetch('/api/tasks', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${normalizedKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ tasks: tasksToPush }),
+        body: JSON.stringify({ tasks: tasksForRequest, baseRevision }),
       });
+      let tasksForRequest = tasksToPush;
+      let res = await postTasks(tasksForRequest, syncRevisionRef.current);
+
+      if (res.status === 409) {
+        const conflict = await res.json();
+        const remoteTasks = normalizeTasks(conflict.tasks);
+        tasksForRequest = mergeTasks(tasksForRequest, remoteTasks);
+        syncRevisionRef.current = Number.isInteger(conflict.revision) ? conflict.revision : 0;
+        setTasks(tasksForRequest);
+        res = await postTasks(tasksForRequest, syncRevisionRef.current);
+      }
+
       if (res.ok) {
+        const data = await res.json();
+        syncRevisionRef.current = Number.isInteger(data.revision)
+          ? data.revision
+          : syncRevisionRef.current;
         setSyncStatus('synced');
         setLastSynced(Date.now());
         setSyncError(null);
@@ -173,19 +193,20 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        const remoteTasks: Task[] = Array.isArray(data.tasks) ? data.tasks : [];
+        const remoteTasks = normalizeTasks(data.tasks);
+        syncRevisionRef.current = Number.isInteger(data.revision) ? data.revision : 0;
 
-        setTasks((currentLocal) => {
-          const merged = mergeTasks(currentLocal, remoteTasks);
-          if (merged.length !== remoteTasks.length) {
-            pushTasksToServer(normalizedKey, merged);
-          }
-          return merged;
-        });
+        const merged = mergeTasks(tasksRef.current, remoteTasks);
+        setTasks(merged);
+        if (JSON.stringify(merged) !== JSON.stringify(remoteTasks)) {
+          await pushTasksToServer(normalizedKey, merged);
+        }
 
-        setSyncStatus('synced');
-        setLastSynced(Date.now());
-        setSyncError(null);
+        if (JSON.stringify(merged) === JSON.stringify(remoteTasks)) {
+          setSyncStatus('synced');
+          setLastSynced(Date.now());
+          setSyncError(null);
+        }
       } else {
         const data = await res.json().catch(() => null);
         setSyncStatus('error');

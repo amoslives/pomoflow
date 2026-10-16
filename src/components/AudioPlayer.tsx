@@ -14,9 +14,9 @@ import {
   ListMusic,
   Plus,
   Trash2,
-  Check,
+  ChevronDown,
+  ChevronRight,
   Radio,
-  ExternalLink
 } from 'lucide-react';
 import { formatTime } from '../utils/timer';
 import { ambientSound } from '../utils/audio';
@@ -24,6 +24,8 @@ import {
   parseYouTubeSource,
   getNextTrackIndex,
   getPrevTrackIndex,
+  fetchYouTubeVideoMetadata,
+  YouTubeVideoMetadata,
   RepeatMode,
 } from '../utils/youtube';
 
@@ -44,6 +46,16 @@ export interface TrackItem {
   ambientMode?: 'rain' | 'drone' | 'whitenoise';
   author?: string;
 }
+
+interface NativePlaylistTrack {
+  videoId: string;
+  title: string;
+  author: string;
+  thumbnailUrl: string;
+  metadataLoaded: boolean;
+}
+
+const PLAYLIST_METADATA_BATCH_SIZE = 25;
 
 export function AudioPlayer() {
   const [showSettings, setShowSettings] = useState(false);
@@ -73,9 +85,15 @@ export function AudioPlayer() {
   const [liveTitle, setLiveTitle] = useState<string>('');
   const [playedIndices, setPlayedIndices] = useState<number[]>([]);
   const [apiReady, setApiReady] = useState(false);
+  const [expandedPlaylistId, setExpandedPlaylistId] = useState<string | null>(null);
+  const [nativePlaylistTracks, setNativePlaylistTracks] = useState<NativePlaylistTrack[]>([]);
+  const [nativePlaylistIndex, setNativePlaylistIndex] = useState(-1);
+  const [isPlaylistMetadataLoading, setIsPlaylistMetadataLoading] = useState(false);
 
   const ytPlayerRef = useRef<any>(null);
   const timerIntervalRef = useRef<number | null>(null);
+  const playlistMetadataCacheRef = useRef<Map<string, YouTubeVideoMetadata | null>>(new Map());
+  const playlistSyncGenerationRef = useRef(0);
 
   const currentTrack: TrackItem | undefined = queue[currentTrackIndex];
 
@@ -121,6 +139,70 @@ export function AudioPlayer() {
       } catch {}
     }
   }, [volume, isMuted]);
+
+  const hydrateNativePlaylistMetadata = useCallback(async (
+    videoIds: string[],
+    generation: number = playlistSyncGenerationRef.current
+  ) => {
+    const missingIds = videoIds
+      .filter((videoId) => !playlistMetadataCacheRef.current.has(videoId))
+      .slice(0, PLAYLIST_METADATA_BATCH_SIZE);
+
+    if (missingIds.length === 0) return;
+    setIsPlaylistMetadataLoading(true);
+
+    const results = await Promise.all(
+      missingIds.map(async (videoId) => ({
+        videoId,
+        metadata: await fetchYouTubeVideoMetadata(videoId),
+      }))
+    );
+
+    if (generation !== playlistSyncGenerationRef.current) return;
+
+    for (const { videoId, metadata } of results) {
+      playlistMetadataCacheRef.current.set(videoId, metadata);
+    }
+
+    setNativePlaylistTracks((current) => current.map((track) => {
+      const metadata = playlistMetadataCacheRef.current.get(track.videoId);
+      return {
+        ...track,
+        title: metadata?.title || track.title,
+        author: metadata?.author || track.author,
+        thumbnailUrl: metadata?.thumbnailUrl || track.thumbnailUrl,
+        metadataLoaded: playlistMetadataCacheRef.current.has(track.videoId),
+      };
+    }));
+    setIsPlaylistMetadataLoading(false);
+  }, []);
+
+  const syncNativePlaylist = useCallback((player: any) => {
+    try {
+      const videoIds = typeof player.getPlaylist === 'function'
+        ? (player.getPlaylist() || []).filter((id: unknown): id is string => typeof id === 'string')
+        : [];
+      if (videoIds.length === 0) return;
+
+      const generation = ++playlistSyncGenerationRef.current;
+      const tracks = videoIds.map((videoId: string, index: number): NativePlaylistTrack => {
+        const metadata = playlistMetadataCacheRef.current.get(videoId);
+        return {
+          videoId,
+          title: metadata?.title || `Track ${index + 1}`,
+          author: metadata?.author || 'YouTube',
+          thumbnailUrl: metadata?.thumbnailUrl || `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+          metadataLoaded: playlistMetadataCacheRef.current.has(videoId),
+        };
+      });
+
+      setNativePlaylistTracks(tracks);
+      if (typeof player.getPlaylistIndex === 'function') {
+        setNativePlaylistIndex(player.getPlaylistIndex());
+      }
+      void hydrateNativePlaylistMetadata(videoIds, generation);
+    } catch {}
+  }, [hydrateNativePlaylistMetadata]);
 
   // Play next track
   const handleNextTrack = useCallback(() => {
@@ -174,6 +256,15 @@ export function AudioPlayer() {
     setCurrentTime(0);
     setDuration(0);
 
+    playlistSyncGenerationRef.current += 1;
+    setNativePlaylistTracks([]);
+    setNativePlaylistIndex(-1);
+    setIsPlaylistMetadataLoading(false);
+
+    if (track.sourceType === 'youtube-playlist') {
+      setExpandedPlaylistId(track.id);
+    }
+
     if (track.sourceType === 'ambient') {
       if (ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
         try {
@@ -205,12 +296,16 @@ export function AudioPlayer() {
       }
       event.target.playVideo();
       setIsPlaying(true);
+      if (track.sourceType === 'youtube-playlist') {
+        syncNativePlaylist(event.target);
+      }
     };
 
     const onPlayerStateChange = (event: any) => {
       // 1 = playing, 2 = paused, 0 = ended
       if (event.data === 1) {
         setIsPlaying(true);
+        syncNativePlaylist(event.target);
         try {
           const videoData = event.target.getVideoData();
           if (videoData && videoData.title) {
@@ -302,6 +397,9 @@ export function AudioPlayer() {
               if (data && data.title && data.title !== liveTitle) {
                 setLiveTitle(data.title);
               }
+            }
+            if (typeof ytPlayerRef.current.getPlaylistIndex === 'function') {
+              setNativePlaylistIndex(ytPlayerRef.current.getPlaylistIndex());
             }
           } catch {}
         } else {
@@ -410,6 +508,9 @@ export function AudioPlayer() {
     setUrlInput('');
     setInputTitle('');
     setShowSettings(false);
+    if (newTrack.sourceType === 'youtube-playlist') {
+      setExpandedPlaylistId(newTrack.id);
+    }
     playTrackAtIndex(0, [newTrack, ...queue]);
   };
 
@@ -419,9 +520,23 @@ export function AudioPlayer() {
     setQueue((prev) => prev.filter((t) => t.id !== id));
     if (index === currentTrackIndex) {
       handleStop();
+      playlistSyncGenerationRef.current += 1;
+      setNativePlaylistTracks([]);
+      setNativePlaylistIndex(-1);
     } else if (index < currentTrackIndex) {
       setCurrentTrackIndex((prev) => Math.max(0, prev - 1));
     }
+    if (expandedPlaylistId === id) setExpandedPlaylistId(null);
+  };
+
+  const handlePlayNativePlaylistTrack = (index: number) => {
+    if (!ytPlayerRef.current || typeof ytPlayerRef.current.playVideoAt !== 'function') return;
+    try {
+      ytPlayerRef.current.playVideoAt(index);
+      setNativePlaylistIndex(index);
+      setCurrentTime(0);
+      setIsPlaying(true);
+    } catch {}
   };
 
   const displayTitle = liveTitle || currentTrack?.title || 'No track loaded';
@@ -498,41 +613,130 @@ export function AudioPlayer() {
             </div>
           </div>
 
-          <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1">
-            {queue.map((track, idx) => (
-              <div
-                key={track.id}
-                onClick={() => playTrackAtIndex(idx)}
-                className={`group flex items-center justify-between p-2 text-sm sm:text-base border cursor-pointer transition-colors ${
-                  idx === currentTrackIndex
-                    ? 'bg-neutral-800 text-white dark:bg-neutral-100 dark:text-neutral-900 border-neutral-900 dark:border-neutral-100 font-bold'
-                    : 'bg-white/70 dark:bg-neutral-900/70 text-neutral-800 dark:text-neutral-200 border-neutral-300 dark:border-neutral-700 hover:border-neutral-500'
-                }`}
-              >
-                <div className="flex items-center gap-2 truncate mr-2">
-                  <span className="w-5 text-center font-mono-tech text-xs opacity-70">
-                    {idx === currentTrackIndex && isPlaying ? '▶' : `${idx + 1}.`}
-                  </span>
-                  <span className="truncate">{track.title}</span>
-                  {track.sourceType === 'youtube-playlist' && (
-                    <span className="px-1 text-[10px] uppercase border border-current opacity-80">
-                      Playlist
-                    </span>
+          <div className="max-h-80 overflow-y-auto space-y-1.5 pr-1">
+            {queue.map((track, idx) => {
+              const isPlaylist = track.sourceType === 'youtube-playlist';
+              const isExpanded = isPlaylist && expandedPlaylistId === track.id;
+              const isCurrent = idx === currentTrackIndex;
+
+              return (
+                <div
+                  key={track.id}
+                  className={`group text-sm sm:text-base border transition-colors ${
+                    isCurrent
+                      ? 'bg-neutral-800 text-white dark:bg-neutral-100 dark:text-neutral-900 border-neutral-900 dark:border-neutral-100 font-bold'
+                      : 'bg-white/70 dark:bg-neutral-900/70 text-neutral-800 dark:text-neutral-200 border-neutral-300 dark:border-neutral-700 hover:border-neutral-500'
+                  }`}
+                >
+                  <div className="flex items-center justify-between p-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isPlaylist) {
+                          setExpandedPlaylistId(isExpanded ? null : track.id);
+                        } else {
+                          playTrackAtIndex(idx);
+                        }
+                      }}
+                      aria-label={isPlaylist ? `${isExpanded ? 'Collapse' : 'Expand'} ${track.title}` : `Play ${track.title}`}
+                      aria-expanded={isPlaylist ? isExpanded : undefined}
+                      className="min-w-0 flex-1 flex items-center gap-2 text-left cursor-pointer"
+                    >
+                      <span className="w-5 flex-shrink-0 text-center font-mono-tech text-xs opacity-70">
+                        {isPlaylist
+                          ? (isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />)
+                          : (isCurrent && isPlaying ? '▶' : `${idx + 1}.`)}
+                      </span>
+                      <span className="truncate">{track.title}</span>
+                      {isPlaylist && (
+                        <span className="px-1 text-[10px] uppercase border border-current opacity-80 flex-shrink-0">
+                          Playlist
+                        </span>
+                      )}
+                    </button>
+
+                    <div className="flex items-center gap-1 ml-2">
+                      {isPlaylist && (
+                        <button
+                          type="button"
+                          onClick={() => playTrackAtIndex(idx)}
+                          aria-label={`Play ${track.title}`}
+                          title="Play playlist from the beginning"
+                          className="p-1 opacity-70 hover:opacity-100 cursor-pointer"
+                        >
+                          <Play className="w-3.5 h-3.5 fill-current" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => handleRemoveTrack(track.id, idx, e)}
+                        aria-label={`Remove ${track.title}`}
+                        className="p-1 opacity-70 hover:opacity-100 hover:text-red-500 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="border-t border-current/25 bg-white/10 dark:bg-black/10 p-1.5">
+                      {!isCurrent ? (
+                        <p className="p-2 text-xs font-mono-tech font-normal opacity-75">
+                          Play this playlist to load its songs.
+                        </p>
+                      ) : nativePlaylistTracks.length === 0 ? (
+                        <p className="p-2 text-xs font-mono-tech font-normal opacity-75">
+                          Loading playlist songs...
+                        </p>
+                      ) : (
+                        <>
+                          <div className="space-y-1 font-normal">
+                            {nativePlaylistTracks.map((playlistTrack, playlistIndex) => (
+                              <button
+                                key={`${playlistTrack.videoId}-${playlistIndex}`}
+                                type="button"
+                                onClick={() => handlePlayNativePlaylistTrack(playlistIndex)}
+                                aria-label={`Play playlist track ${playlistIndex + 1}: ${playlistTrack.title}`}
+                                className={`w-full flex items-center gap-2 p-1.5 text-left border cursor-pointer transition-colors ${
+                                  playlistIndex === nativePlaylistIndex
+                                    ? 'border-orange-500 bg-orange-500/15'
+                                    : 'border-transparent hover:border-current/40 hover:bg-black/5 dark:hover:bg-white/5'
+                                }`}
+                              >
+                                <span className="w-6 flex-shrink-0 text-center font-mono-tech text-xs opacity-70">
+                                  {playlistIndex === nativePlaylistIndex && isPlaying ? '▶' : playlistIndex + 1}
+                                </span>
+                                <img
+                                  src={playlistTrack.thumbnailUrl}
+                                  alt=""
+                                  loading="lazy"
+                                  className="w-12 h-7 object-cover flex-shrink-0 bg-neutral-300 dark:bg-neutral-700"
+                                />
+                                <span className="min-w-0">
+                                  <span className="block truncate">{playlistTrack.title}</span>
+                                  <span className="block truncate text-xs font-mono-tech opacity-60">{playlistTrack.author}</span>
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+
+                          {nativePlaylistTracks.some((trackItem) => !trackItem.metadataLoaded) && (
+                            <button
+                              type="button"
+                              onClick={() => void hydrateNativePlaylistMetadata(nativePlaylistTracks.map((trackItem) => trackItem.videoId))}
+                              disabled={isPlaylistMetadataLoading}
+                              className="w-full mt-1.5 p-1.5 text-xs uppercase font-mono-tech border border-current/40 hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-50 cursor-pointer"
+                            >
+                              {isPlaylistMetadataLoading ? 'Loading titles...' : 'Load more titles'}
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
-
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={(e) => handleRemoveTrack(track.id, idx, e)}
-                    aria-label={`Remove ${track.title}`}
-                    className="p-1 opacity-70 hover:opacity-100 hover:text-red-500 cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

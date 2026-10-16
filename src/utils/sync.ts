@@ -14,6 +14,13 @@ export function isValidSyncKey(key: string): boolean {
 }
 
 /**
+ * Canonicalizes keys so the same passphrase works regardless of letter case.
+ */
+export function normalizeSyncKey(key: string): string {
+  return typeof key === 'string' ? key.trim().toLowerCase() : '';
+}
+
+/**
  * Generates a clean, memorable sync key (e.g., 'focus-8492')
  */
 export function generateSyncKey(): string {

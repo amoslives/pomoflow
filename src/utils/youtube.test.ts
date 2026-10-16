@@ -19,6 +19,11 @@ test('parseYouTubeSource parses video URLs and IDs', () => {
     id: 'jfKfPfyJRdk',
   });
 
+  assert.deepEqual(parseYouTubeSource('https://www.youtube.com/shorts/jfKfPfyJRdk'), {
+    type: 'video',
+    id: 'jfKfPfyJRdk',
+  });
+
   assert.deepEqual(parseYouTubeSource('jfKfPfyJRdk'), {
     type: 'video',
     id: 'jfKfPfyJRdk',
@@ -52,7 +57,7 @@ test('getNextTrackIndex normal mode advances sequentially', () => {
   assert.equal(getNextTrackIndex(0, 5, false, 'all'), 1);
   assert.equal(getNextTrackIndex(1, 5, false, 'all'), 2);
   assert.equal(getNextTrackIndex(4, 5, false, 'all'), 0); // Loops around when repeat all
-  assert.equal(getNextTrackIndex(4, 5, false, 'off'), 4); // Stays at end when repeat off
+  assert.equal(getNextTrackIndex(4, 5, false, 'off'), -1); // Stops at end when repeat off
 });
 
 test('getNextTrackIndex repeat one stays on current', () => {
@@ -60,10 +65,16 @@ test('getNextTrackIndex repeat one stays on current', () => {
   assert.equal(getNextTrackIndex(2, 5, true, 'one'), 2);
 });
 
+test('getNextTrackIndex stops a single-item queue when repeat is off', () => {
+  assert.equal(getNextTrackIndex(0, 1, false, 'off'), -1);
+  assert.equal(getNextTrackIndex(0, 1, false, 'all'), 0);
+});
+
 test('getNextTrackIndex shuffle mode picks from available unplayed tracks', () => {
   const unplayed = [1, 3];
   const next = getNextTrackIndex(0, 5, true, 'all', unplayed);
   assert.ok(unplayed.includes(next));
+  assert.equal(getNextTrackIndex(2, 5, true, 'off', []), -1);
 });
 
 test('getPrevTrackIndex steps backwards correctly', () => {

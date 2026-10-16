@@ -61,6 +61,20 @@ export function generateSyncKey(): string {
 export function mergeTasks(localTasks: Task[], remoteTasks: Task[]): Task[] {
   const map = new Map<string, Task>();
 
+  const chooseNewest = (a: Task, b: Task): Task => {
+    const aVersion = a.updatedAt || a.createdAt || 0;
+    const bVersion = b.updatedAt || b.createdAt || 0;
+    if (aVersion !== bVersion) return aVersion > bVersion ? a : b;
+
+    // Deterministic tie-breaker: deletion wins, then compare stable task fields.
+    if ((a.deletedAt !== undefined) !== (b.deletedAt !== undefined)) {
+      return a.deletedAt !== undefined ? a : b;
+    }
+    const aSignature = `${a.deletedAt || 0}\0${a.completed ? 1 : 0}\0${a.title}`;
+    const bSignature = `${b.deletedAt || 0}\0${b.completed ? 1 : 0}\0${b.title}`;
+    return aSignature >= bSignature ? a : b;
+  };
+
   // Add remote tasks first
   for (const t of remoteTasks) {
     if (t && t.id && t.title) {
@@ -72,14 +86,7 @@ export function mergeTasks(localTasks: Task[], remoteTasks: Task[]): Task[] {
   for (const t of localTasks) {
     if (!t || !t.id) continue;
     const existing = map.get(t.id);
-    if (!existing) {
-      map.set(t.id, t);
-    } else {
-      // If local task was modified or exists in both, prefer local if newer or completed
-      if ((t.createdAt || 0) >= (existing.createdAt || 0)) {
-        map.set(t.id, t);
-      }
-    }
+    map.set(t.id, existing ? chooseNewest(t, existing) : t);
   }
 
   // Return merged array sorted with pending first then completed, preserving creation order

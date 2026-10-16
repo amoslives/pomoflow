@@ -17,7 +17,7 @@ React 19 + Vite + Tailwind v4 Pomodoro timer SPA. One backend API (`/api/tasks`)
 `/api/tasks` has two implementations that must stay behaviorally identical:
 
 - `server.ts` — local dev (Express, persists to `.data/tasks.json`)
-- `functions/api/tasks.ts` — Cloudflare Pages Function using KV binding `TASKS_KV` (keys stored as `tasks:<key>`)
+- `functions/api/tasks.ts` — Cloudflare Pages Function using D1 binding `TASKS_DB`; `TASKS_KV` is retained only to migrate legacy rooms on first access.
 
 The frontend calls the relative path `/api/tasks` (`src/App.tsx`), so it works against either. When changing the API shape, update both implementations plus `src/utils/sync.ts`.
 
@@ -26,5 +26,5 @@ The frontend calls the relative path `/api/tasks` (`src/App.tsx`), so it works a
 - The `@` path alias maps to the **repo root**, not `src/`.
 - `vite.config.ts` `DISABLE_HMR` logic is marked "Do not modify" — leave it as is.
 - `.data/tasks.json` is runtime state written by `server.ts`; delete it to reset local sync data.
-- `wrangler.toml` has a placeholder KV namespace id; full Cloudflare deploy steps are in `CLOUDFLARE_WALKTHROUGH.md`.
+- `wrangler.toml` contains the production D1 and legacy-KV binding IDs; treat it as the Pages configuration source of truth.
 - No env vars are required to run the app; `.env.example` documents the optional ones (`PORT`, `DISABLE_HMR`).

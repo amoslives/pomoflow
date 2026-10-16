@@ -21,7 +21,7 @@ A retro pixel-style Pomodoro productivity timer with customizable intervals, tas
   - Inline task input with retro `+` button and `Enter` key creation.
   - Custom retro checkboxes separating pending and completed tasks.
   - Inline title editing and deletion with hover/tap actions.
-  - Cross-device sync supported via Cloudflare Pages & KV.
+  - Cross-device sync supported via Cloudflare Pages Functions and D1 revision-checked storage.
 - **Docked Audio Player**:
   - **YouTube API Integration**: Load and play any individual YouTube song/video or playlist URL/ID.
   - **Shuffle & Repeat Modes**: Randomize playlist playback using Fisher-Yates and toggle Repeat One, Repeat All, or Repeat Off.
@@ -34,7 +34,7 @@ A retro pixel-style Pomodoro productivity timer with customizable intervals, tas
 - **Cloudflare Cross-Device Sync**:
   - Generate or enter a personal sync passphrase (e.g. `focus-2026`).
   - Shareable pairing link (`https://yourdomain.com/?sync=YOUR_KEY`) to instantly pair phones, laptops, and workstations.
-  - Fully compatible with Cloudflare Pages Functions & Cloudflare KV (`TASKS_KV`).
+  - Revision-checked writes and deletion tombstones prevent stale devices from silently overwriting task changes.
 
 ---
 
@@ -59,7 +59,7 @@ A retro pixel-style Pomodoro productivity timer with customizable intervals, tas
 - **Audio**: Web Audio API (Synthesizers & 8-bit alerts) + YouTube Iframe Player API
 - **Backend / Edge Functions**:
   - Local Dev & Container: Node.js + [Express](https://expressjs.com/) (`server.ts`)
-  - Cloudflare Pages: [Cloudflare Pages Functions](https://developers.cloudflare.com/pages/platform/functions/) (`/functions/api/tasks.ts`) + [Cloudflare KV](https://developers.cloudflare.com/kv/) (`TASKS_KV`)
+  - Cloudflare Pages: [Cloudflare Pages Functions](https://developers.cloudflare.com/pages/platform/functions/) (`/functions/api/tasks.ts`) + [Cloudflare D1](https://developers.cloudflare.com/d1/) (`TASKS_DB`)
 - **Testing**: Node.js native test runner (`node:test`, `node:assert/strict`)
 
 ---
@@ -105,7 +105,7 @@ npm run build
 
 ## ☁️ Cloudflare Pages Hosting (Subdomain Deployment)
 
-For a complete step-by-step walkthrough on how to host this application on a subdomain of your Cloudflare domain (e.g., `pomo.yourdomain.com`) connected to a GitHub repository with global KV task sync, see:
+For a complete step-by-step walkthrough on how to host this application on a subdomain of your Cloudflare domain (e.g., `pomo.yourdomain.com`) connected to a GitHub repository with D1-backed task sync, see:
 
 👉 **[CLOUDFLARE_WALKTHROUGH.md](./CLOUDFLARE_WALKTHROUGH.md)**
 

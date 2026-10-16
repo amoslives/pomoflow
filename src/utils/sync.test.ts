@@ -52,3 +52,17 @@ test('mergeTasks resolves duplicate task IDs without duplication', () => {
   const merged = mergeTasks([t1], [remoteT1]);
   assert.equal(merged.length, 1);
 });
+
+test('mergeTasks keeps the newest task version regardless of device', () => {
+  const local = { ...createTask('Old title'), id: 'shared', createdAt: 100, updatedAt: 100 };
+  const remote = { ...local, title: 'Remote edit', completed: true, updatedAt: 200 };
+  assert.deepEqual(mergeTasks([local], [remote]), [remote]);
+  assert.deepEqual(mergeTasks([remote], [local]), [remote]);
+});
+
+test('mergeTasks preserves deletion tombstones instead of resurrecting tasks', () => {
+  const active = { ...createTask('Delete me'), id: 'shared', createdAt: 100, updatedAt: 100 };
+  const deleted = { ...active, updatedAt: 200, deletedAt: 200 };
+  assert.deepEqual(mergeTasks([active], [deleted]), [deleted]);
+  assert.deepEqual(mergeTasks([deleted], []), [deleted]);
+});

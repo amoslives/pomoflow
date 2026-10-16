@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { isValidSyncKey, normalizeSyncKey } from './src/utils/sync.ts';
+import { normalizeTasks, type Task } from './src/utils/tasks.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,7 +21,7 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-let store: Record<string, { tasks: any[]; updatedAt: number }> = {};
+let store: Record<string, { tasks: Task[]; updatedAt: number; revision?: number }> = {};
 if (fs.existsSync(DATA_FILE)) {
   try {
     store = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
@@ -39,26 +40,14 @@ function saveStore(): boolean {
 const MAX_TASKS = 500;
 const MAX_PAYLOAD_BYTES = 256 * 1024;
 
-function isValidTask(task: any): boolean {
-  return task
-    && typeof task === 'object'
-    && typeof task.id === 'string'
-    && task.id.length > 0
-    && task.id.length <= 128
-    && typeof task.title === 'string'
-    && task.title.trim().length > 0
-    && task.title.length <= 500
-    && typeof task.completed === 'boolean'
-    && typeof task.createdAt === 'number'
-    && Number.isFinite(task.createdAt)
-    && task.createdAt >= 0;
-}
-
-function isValidTasks(tasks: unknown): tasks is any[] {
-  return Array.isArray(tasks)
-    && tasks.length <= MAX_TASKS
-    && tasks.every(isValidTask)
-    && Buffer.byteLength(JSON.stringify(tasks), 'utf8') <= MAX_PAYLOAD_BYTES;
+function validateTasks(value: unknown): Task[] | null {
+  if (!Array.isArray(value) || value.length > MAX_TASKS) return null;
+  const tasks = normalizeTasks(value);
+  return tasks.length === value.length
+    && tasks.every((task) => task.id.length <= 128 && task.title.length <= 500)
+    && Buffer.byteLength(JSON.stringify(tasks), 'utf8') <= MAX_PAYLOAD_BYTES
+    ? tasks
+    : null;
 }
 
 function getCredential(req: express.Request, fallback?: unknown): string {
@@ -108,27 +97,47 @@ app.get('/api/tasks', (req, res) => {
 
   const record = store[key]
     || (requestedKey !== key ? store[requestedKey] : undefined)
-    || { tasks: [], updatedAt: Date.now() };
-  return res.json(record);
+    || { tasks: [], updatedAt: Date.now(), revision: 0 };
+  return res.json({
+    tasks: normalizeTasks(record.tasks),
+    updatedAt: record.updatedAt,
+    revision: record.revision ?? 1,
+  });
 });
 
 app.post('/api/tasks', (req, res) => {
   setApiHeaders(req, res);
   if (!isAllowedOrigin(req)) return res.status(403).json({ error: 'Cross-origin requests are not allowed' });
 
-  const { key: requestedKey, tasks } = req.body || {};
+  const { key: requestedKey, tasks: rawTasks, baseRevision } = req.body || {};
   const normalizedKey = getCredential(req, requestedKey);
 
   if (!normalizedKey || !isValidSyncKey(normalizedKey)) {
     return res.status(401).json({ error: 'A valid sync credential is required' });
   }
-  if (!isValidTasks(tasks)) {
+  const tasks = validateTasks(rawTasks);
+  if (!tasks) {
     return res.status(400).json({ error: 'Payload contains invalid tasks or exceeds its size limit' });
+  }
+
+  const current = store[normalizedKey];
+  const currentRevision = current?.revision ?? (current ? 1 : 0);
+  const suppliedRevision = Number.isInteger(baseRevision) && baseRevision >= 0
+    ? baseRevision
+    : currentRevision;
+  if (suppliedRevision !== currentRevision) {
+    return res.status(409).json({
+      error: 'Sync conflict',
+      tasks: normalizeTasks(current?.tasks || []),
+      revision: currentRevision,
+      updatedAt: current?.updatedAt || Date.now(),
+    });
   }
 
   const payload = {
     tasks,
     updatedAt: Date.now(),
+    revision: currentRevision + 1,
   };
 
   const previous = store[normalizedKey];
@@ -139,7 +148,12 @@ app.post('/api/tasks', (req, res) => {
     return res.status(500).json({ error: 'Could not persist tasks' });
   }
 
-  return res.json({ success: true, count: tasks.length, updatedAt: payload.updatedAt });
+  return res.json({
+    success: true,
+    count: tasks.length,
+    updatedAt: payload.updatedAt,
+    revision: payload.revision,
+  });
 });
 
 async function startServer() {

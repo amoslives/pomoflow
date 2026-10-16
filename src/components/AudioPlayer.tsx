@@ -10,13 +10,11 @@ import {
   Repeat1,
   Volume2,
   VolumeX,
-  Settings,
   ListMusic,
   Plus,
   Trash2,
   ChevronDown,
   ChevronRight,
-  Radio,
 } from 'lucide-react';
 import { formatTime } from '../utils/timer';
 import { parseStoredJson } from '../utils/storage';
@@ -764,299 +762,203 @@ export function AudioPlayer() {
   };
 
   return (
-    <div className="w-full mt-5 font-pixel select-none">
+    <section className="window w-full mt-5 font-pixel select-none" aria-label="Music player">
       {/* Hidden YouTube API container */}
       <div className="absolute -top-[9999px] -left-[9999px] pointer-events-none opacity-0">
         <div id="youtube-player-element" />
       </div>
 
-      {/* Settings & Add Track / Playlist Panel */}
-      {showSettings && (
-        <div className="w-full mb-3 p-3 bg-neutral-200 dark:bg-neutral-800 border-2 border-neutral-400 dark:border-neutral-700 shadow-[3px_3px_0px_rgba(0,0,0,0.2)]">
-          <div className="flex items-center justify-between pb-2 mb-3 border-b border-neutral-300 dark:border-neutral-700">
-            <h3 className="text-xl sm:text-2xl font-bold uppercase tracking-wider text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-              <Radio className="w-5 h-5" />
-              <span>Load YouTube Song or Playlist</span>
-            </h3>
-            <button
-              type="button"
-              onClick={() => setShowSettings(false)}
-              className="text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 text-lg uppercase cursor-pointer"
-            >
-              Close
-            </button>
-          </div>
+      <div className="titlebar">
+        <span className="titlebar-box left" aria-hidden="true" />
+        <span className="titlebar-title">Jukebox</span>
+        <button
+          type="button"
+          onClick={() => {
+            setShowSettings(!showSettings);
+            setShowPlaylist(false);
+          }}
+          aria-label="Audio settings and YouTube URL loader"
+          title="Load a YouTube video or playlist"
+          aria-pressed={showSettings}
+          className="titlebar-box right"
+        >
+          <Plus />
+        </button>
+      </div>
 
-          <form onSubmit={handleAddSource} className="space-y-2 mb-3">
+      <div className="window-body !pt-3 !pb-3">
+        {/* Load panel */}
+        {showSettings && (
+          <form onSubmit={handleAddSource} className="groupbox mb-4 mt-3">
+            <div className="groupbox-label">Load from YouTube</div>
             <input
               type="text"
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
-              placeholder="Paste YouTube song URL, video ID, or playlist URL (e.g. youtube.com/playlist?list=...)"
-              className="w-full px-3 py-1.5 bg-white dark:bg-neutral-900 border border-neutral-500 text-neutral-900 dark:text-neutral-100 text-lg placeholder:text-neutral-400 focus:outline-none"
+              placeholder="Paste YouTube video URL, video ID or playlist URL"
+              className="field field-sm mb-2"
+              aria-label="YouTube URL, video ID or playlist URL"
             />
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <input
                 type="text"
                 value={inputTitle}
                 onChange={(e) => setInputTitle(e.target.value)}
-                placeholder="Custom Label / Title (Optional)"
-                className="flex-1 px-3 py-1.5 bg-white dark:bg-neutral-900 border border-neutral-500 text-neutral-900 dark:text-neutral-100 text-lg placeholder:text-neutral-400 focus:outline-none"
+                placeholder="Label (optional)"
+                className="field field-sm"
+                aria-label="Custom label for this source"
               />
-              <button
-                type="submit"
-                disabled={!urlInput.trim()}
-                className="px-5 py-1.5 bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900 uppercase text-lg border border-neutral-800 dark:border-neutral-200 cursor-pointer disabled:opacity-40 hover:bg-neutral-700 dark:hover:bg-neutral-300 transition-colors flex items-center justify-center gap-1.5"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Load & Play</span>
+              <button type="submit" disabled={!urlInput.trim()} className="btn btn-sm btn-default">
+                Load & play
+              </button>
+              <button type="button" onClick={() => setShowSettings(false)} className="btn btn-sm">
+                Cancel
               </button>
             </div>
+            <p className="dim text-base mt-2">Playlists and live streams work too. Playback uses YouTube's own player.</p>
           </form>
-        </div>
-      )}
+        )}
 
-      {/* Playlist / Queue Drawer */}
-      {showPlaylist && (
-        <div className="w-full mb-3 p-3 bg-neutral-200 dark:bg-neutral-800 border-2 border-neutral-400 dark:border-neutral-700 shadow-[3px_3px_0px_rgba(0,0,0,0.2)]">
-          <div className="flex items-center justify-between pb-2 mb-2 border-b border-neutral-300 dark:border-neutral-700">
-            <h3 className="text-xl sm:text-2xl font-bold uppercase tracking-wider text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-              <ListMusic className="w-5 h-5" />
-              <span>Current Playlist & Queue ({queue.length})</span>
-            </h3>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setShowPlaylist(false)}
-                className="text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 text-lg uppercase cursor-pointer"
-              >
-                Close
+        {/* Queue panel */}
+        {showPlaylist && (
+          <div className="groupbox mb-4 mt-3">
+            <div className="groupbox-label">Current Playlist & Queue ({queue.length})</div>
+            <div className="groupbox-tools">
+              <button type="button" onClick={() => setShowPlaylist(false)} className="btn btn-sm btn-icon" aria-label="Close queue">
+                <ChevronDown strokeWidth={3} />
               </button>
             </div>
-          </div>
 
-          <div className="max-h-80 overflow-y-auto space-y-1.5 pr-1">
-            {queue.map((track, idx) => {
-              const isPlaylist = track.sourceType === 'youtube-playlist';
-              const isExpanded = isPlaylist && expandedPlaylistId === track.id;
-              const isCurrent = idx === currentTrackIndex;
+            {queue.length === 0 ? (
+              <p className="dim text-lg py-2 text-center">The queue is empty. Use the + box in the title bar to load something.</p>
+            ) : (
+              <div className="max-h-80 overflow-y-auto">
+                {queue.map((track, idx) => {
+                  const isPlaylist = track.sourceType === 'youtube-playlist';
+                  const isExpanded = isPlaylist && expandedPlaylistId === track.id;
+                  const isCurrent = idx === currentTrackIndex;
 
-              return (
-                <div
-                  key={track.id}
-                  className={`group text-sm sm:text-base border transition-colors ${
-                    isCurrent
-                      ? 'bg-neutral-800 text-white dark:bg-neutral-100 dark:text-neutral-900 border-neutral-900 dark:border-neutral-100 font-bold'
-                      : 'bg-white/70 dark:bg-neutral-900/70 text-neutral-800 dark:text-neutral-200 border-neutral-300 dark:border-neutral-700 hover:border-neutral-500'
-                  }`}
-                >
-                  <div className="flex items-center justify-between p-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (isPlaylist) {
-                          setExpandedPlaylistId(isExpanded ? null : track.id);
-                        } else {
-                          playTrackAtIndex(idx);
-                        }
-                      }}
-                      aria-label={isPlaylist ? `${isExpanded ? 'Collapse' : 'Expand'} ${track.title}` : `Play ${track.title}`}
-                      aria-expanded={isPlaylist ? isExpanded : undefined}
-                      className="min-w-0 flex-1 flex items-center gap-2 text-left cursor-pointer"
-                    >
-                      <span className="w-5 flex-shrink-0 text-center font-mono-tech text-xs opacity-70">
-                        {isPlaylist
-                          ? (isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />)
-                          : (isCurrent && isPlaying ? '▶' : `${idx + 1}.`)}
-                      </span>
-                      <span className="truncate">{track.title}</span>
-                      {isPlaylist && (
-                        <span className="px-1 text-[10px] uppercase border border-current opacity-80 flex-shrink-0">
-                          Playlist
-                        </span>
-                      )}
-                    </button>
-
-                    <div className="flex items-center gap-1 ml-2">
-                      {isPlaylist && (
+                  return (
+                    <div key={track.id} className={`list-row flex-col !items-stretch !gap-0 !p-0 ${isCurrent ? 'is-selected' : ''}`}>
+                      <div className="flex items-center gap-2 px-2 py-1.5">
                         <button
                           type="button"
-                          onClick={() => playTrackAtIndex(idx)}
-                          aria-label={`Play ${track.title}`}
-                          title="Play playlist from the beginning"
-                          className="p-1 opacity-70 hover:opacity-100 cursor-pointer"
+                          onClick={() => {
+                            if (isPlaylist) {
+                              setExpandedPlaylistId(isExpanded ? null : track.id);
+                            } else {
+                              playTrackAtIndex(idx);
+                            }
+                          }}
+                          aria-label={isPlaylist ? `${isExpanded ? 'Collapse' : 'Expand'} ${track.title}` : `Play ${track.title}`}
+                          aria-expanded={isPlaylist ? isExpanded : undefined}
+                          className="min-w-0 flex-1 flex items-center gap-2 text-left cursor-pointer text-lg"
                         >
-                          <Play className="w-3.5 h-3.5 fill-current" />
+                          <span className="w-5 flex-shrink-0 text-center font-data text-lg">
+                            {isPlaylist
+                              ? (isExpanded ? <ChevronDown className="w-4 h-4" strokeWidth={3} /> : <ChevronRight className="w-4 h-4" strokeWidth={3} />)
+                              : (isCurrent && isPlaying ? '>' : `${idx + 1}`)}
+                          </span>
+                          <span className="truncate">{track.title}</span>
+                          {isPlaylist && <span className="badge !text-xs flex-shrink-0">Playlist</span>}
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={(e) => handleRemoveTrack(track.id, idx, e)}
-                        aria-label={`Remove ${track.title}`}
-                        className="p-1 opacity-70 hover:opacity-100 hover:text-red-500 cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
 
-                  {isExpanded && (
-                    <div className="border-t border-current/25 bg-white/10 dark:bg-black/10 p-1.5">
-                      {!isCurrent ? (
-                        <p className="p-2 text-xs font-mono-tech font-normal opacity-75">
-                          Play this playlist to load its songs.
-                        </p>
-                      ) : nativePlaylistTracks.length === 0 ? (
-                        <p className="p-2 text-xs font-mono-tech font-normal opacity-75">
-                          Loading playlist songs...
-                        </p>
-                      ) : (
-                        <>
-                          <div className="space-y-1 font-normal">
-                            {nativePlaylistTracks.map((playlistTrack, playlistIndex) => (
-                              <button
-                                key={`${playlistTrack.videoId}-${playlistIndex}`}
-                                type="button"
-                                onClick={() => handlePlayNativePlaylistTrack(playlistIndex)}
-                                aria-label={`Play playlist track ${playlistIndex + 1}: ${playlistTrack.title}`}
-                                className={`w-full flex items-center gap-2 p-1.5 text-left border cursor-pointer transition-colors ${
-                                  playlistIndex === nativePlaylistIndex
-                                    ? 'border-orange-500 bg-orange-500/15'
-                                    : 'border-transparent hover:border-current/40 hover:bg-black/5 dark:hover:bg-white/5'
-                                }`}
-                              >
-                                <span className="w-6 flex-shrink-0 text-center font-mono-tech text-xs opacity-70">
-                                  {playlistIndex === nativePlaylistIndex && isPlaying ? '▶' : playlistIndex + 1}
-                                </span>
-                                <img
-                                  src={playlistTrack.thumbnailUrl}
-                                  alt=""
-                                  loading="lazy"
-                                  className="w-12 h-7 object-cover flex-shrink-0 bg-neutral-300 dark:bg-neutral-700"
-                                />
-                                <span className="min-w-0">
-                                  <span className="block truncate">{playlistTrack.title}</span>
-                                  <span className="block truncate text-xs font-mono-tech opacity-60">{playlistTrack.author}</span>
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-
-                          {nativePlaylistTracks.some((trackItem) => !trackItem.metadataLoaded) && (
+                        <div className="flex items-center gap-1">
+                          {isPlaylist && (
                             <button
                               type="button"
-                              onClick={() => void hydrateNativePlaylistMetadata(nativePlaylistTracks.map((trackItem) => trackItem.videoId))}
-                              disabled={isPlaylistMetadataLoading}
-                              className="w-full mt-1.5 p-1.5 text-xs uppercase font-mono-tech border border-current/40 hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-50 cursor-pointer"
+                              onClick={() => playTrackAtIndex(idx)}
+                              aria-label={`Play ${track.title}`}
+                              title="Play playlist from the beginning"
+                              className="btn btn-icon btn-ghost !text-current"
                             >
-                              {isPlaylistMetadataLoading ? 'Loading titles...' : 'Load more titles'}
+                              <Play className="fill-current" />
                             </button>
                           )}
-                        </>
+                          <button
+                            type="button"
+                            onClick={(e) => handleRemoveTrack(track.id, idx, e)}
+                            aria-label={`Remove ${track.title}`}
+                            className="btn btn-icon btn-ghost !text-current"
+                          >
+                            <Trash2 strokeWidth={2.5} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="border-t-2 border-dotted border-current px-2 py-1.5">
+                          {!isCurrent ? (
+                            <p className="py-1 text-base opacity-80">Play this playlist to load its songs.</p>
+                          ) : nativePlaylistTracks.length === 0 ? (
+                            <p className="py-1 text-base opacity-80">Loading playlist songs...</p>
+                          ) : (
+                            <>
+                              <div>
+                                {nativePlaylistTracks.map((playlistTrack, playlistIndex) => (
+                                  <button
+                                    key={`${playlistTrack.videoId}-${playlistIndex}`}
+                                    type="button"
+                                    onClick={() => handlePlayNativePlaylistTrack(playlistIndex)}
+                                    aria-label={`Play playlist track ${playlistIndex + 1}: ${playlistTrack.title}`}
+                                    className={`w-full flex items-center gap-2 px-1 py-1 text-left cursor-pointer border-2 ${
+                                      playlistIndex === nativePlaylistIndex ? 'border-current' : 'border-transparent hover:border-current'
+                                    }`}
+                                  >
+                                    <span className="w-6 flex-shrink-0 text-center font-data text-lg">
+                                      {playlistIndex === nativePlaylistIndex && isPlaying ? '>' : playlistIndex + 1}
+                                    </span>
+                                    <img
+                                      src={playlistTrack.thumbnailUrl}
+                                      alt=""
+                                      loading="lazy"
+                                      className="w-12 h-7 object-cover flex-shrink-0 border border-current grayscale contrast-150"
+                                    />
+                                    <span className="min-w-0">
+                                      <span className="block truncate text-base">{playlistTrack.title}</span>
+                                      <span className="block truncate text-sm opacity-70">{playlistTrack.author}</span>
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+
+                              {nativePlaylistTracks.some((trackItem) => !trackItem.metadataLoaded) && (
+                                <button
+                                  type="button"
+                                  onClick={() => void hydrateNativePlaylistMetadata(nativePlaylistTracks.map((trackItem) => trackItem.videoId))}
+                                  disabled={isPlaylistMetadataLoading}
+                                  className="btn btn-sm w-full mt-2 !text-current !bg-transparent !border-current"
+                                >
+                                  {isPlaylistMetadataLoading ? 'Loading titles...' : 'Load more titles'}
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
-              );
-            })}
+                  );
+                })}
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Docked Retro Player Bar */}
-      <div className="w-full flex flex-wrap items-center gap-2 p-2.5 border-2 border-neutral-400 dark:border-neutral-700 bg-neutral-200/90 dark:bg-neutral-800/90 backdrop-blur-sm text-neutral-800 dark:text-neutral-200 shadow-[3px_3px_0px_rgba(0,0,0,0.2)]">
-        {/* Track Title Display */}
-        <div className="order-[1] flex-1 min-w-40 overflow-hidden px-2.5 py-1 bg-white dark:bg-neutral-900 border border-neutral-400 dark:border-neutral-600 text-sm sm:text-base flex items-center h-8">
-          <div className="w-full truncate font-mono-tech text-neutral-800 dark:text-neutral-200">
-            {displayTitle}
-          </div>
-        </div>
-
-        {/* Current Time */}
-        <div className="order-[5] px-1.5 font-mono-tech text-sm min-w-[45px] text-center">
-          {isLive ? 'LIVE' : formatTime(displayedTime)}
+        {/* Now playing */}
+        <div className="field field-sm font-data text-lg truncate !bg-transparent" aria-live="polite">
+          {currentTrack ? (
+            <>
+              <span className="font-pixel text-sm mr-2">{isPlaying ? 'Playing' : 'Loaded'}</span>
+              <span>{displayTitle}</span>
+            </>
+          ) : (
+            <span className="dim">No track loaded</span>
+          )}
         </div>
 
-        {/* Transport Controls */}
-        <div className="order-[2] flex items-center gap-1">
-          <button
-            type="button"
-            onClick={handlePrevTrack}
-            aria-label="Previous track"
-            title="Previous track"
-            className="p-1.5 hover:bg-neutral-300 dark:hover:bg-neutral-700 transition-colors border border-transparent hover:border-neutral-400 dark:hover:border-neutral-600 cursor-pointer active:translate-y-0.5"
-          >
-            <SkipBack className="w-4 h-4" />
-          </button>
-
-          <button
-            type="button"
-            onClick={handleTogglePlayPause}
-            aria-label={isPlaying ? 'Pause music' : 'Play music'}
-            title={isPlaying ? 'Pause' : 'Play'}
-            className="p-1.5 bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900 hover:bg-neutral-700 dark:hover:bg-neutral-300 transition-colors cursor-pointer active:translate-y-0.5"
-          >
-            {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
-          </button>
-
-          <button
-            type="button"
-            onClick={handleStop}
-            aria-label="Stop playback"
-            title="Stop playback"
-            className="p-1.5 hover:bg-neutral-300 dark:hover:bg-neutral-700 transition-colors border border-transparent hover:border-neutral-400 dark:hover:border-neutral-600 cursor-pointer active:translate-y-0.5"
-          >
-            <Square className="w-4 h-4 fill-current" />
-          </button>
-
-          <button
-            type="button"
-            onClick={handleNextTrack}
-            aria-label="Next track"
-            title="Next track"
-            className="p-1.5 hover:bg-neutral-300 dark:hover:bg-neutral-700 transition-colors border border-transparent hover:border-neutral-400 dark:hover:border-neutral-600 cursor-pointer active:translate-y-0.5"
-          >
-            <SkipForward className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Shuffle & Repeat Controls */}
-        <div className="order-[3] flex items-center gap-1 border-x border-neutral-300 dark:border-neutral-700 px-1">
-          {/* Shuffle Mode Button */}
-          <button
-            type="button"
-            onClick={handleToggleShuffle}
-            aria-label={isShuffle ? 'Disable shuffle mode' : 'Enable shuffle mode'}
-            title={isShuffle ? 'Shuffle: ON' : 'Shuffle: OFF'}
-            className={`p-1.5 border transition-all cursor-pointer active:translate-y-0.5 ${
-              isShuffle
-                ? 'bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900 border-neutral-800 dark:border-neutral-200'
-                : 'border-transparent text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 hover:border-neutral-400'
-            }`}
-          >
-            <Shuffle className="w-4 h-4" />
-          </button>
-
-          {/* Repeat Mode Button */}
-          <button
-            type="button"
-            onClick={handleCycleRepeat}
-            aria-label={`Repeat mode: ${repeatMode}`}
-            title={`Repeat: ${repeatMode}`}
-            className={`p-1.5 border transition-all cursor-pointer active:translate-y-0.5 ${
-              repeatMode !== 'off'
-                ? 'bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900 border-neutral-800 dark:border-neutral-200'
-                : 'border-transparent text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 hover:border-neutral-400'
-            }`}
-          >
-            {repeatMode === 'one' ? <Repeat1 className="w-4 h-4" /> : <Repeat className="w-4 h-4" />}
-          </button>
-        </div>
-
-        <div className="order-[4] basis-full h-0" aria-hidden="true" />
-
-        {/* Seek Progress Slider */}
-        <div className="order-[6] flex-1 min-w-40 flex items-center px-1">
+        {/* Seek */}
+        <div className="flex items-center gap-3 mt-2">
+          <span className="font-data text-lg w-12 text-right">{isLive ? 'LIVE' : formatTime(displayedTime)}</span>
           <input
             type="range"
             min="0"
@@ -1076,87 +978,100 @@ export function AudioPlayer() {
             onKeyUp={(e) => commitSeek(Number(e.currentTarget.value))}
             onBlur={(e) => isSeeking && commitSeek(Number(e.currentTarget.value))}
             disabled={!currentTrack || isLive || duration <= 0}
-            className="retro-progress-slider w-full disabled:opacity-40"
+            className="slider slider-seek slider-thin flex-1"
             style={{ '--seek-progress': `${seekPercent}%` } as React.CSSProperties}
             aria-label={isLive ? 'Live stream progress is not seekable' : 'Seek through current track'}
             aria-valuetext={isLive ? 'Live' : `${formatTime(displayedTime)} of ${formatTime(duration)}`}
           />
+          <span className="font-data text-lg w-12">{isLive ? 'LIVE' : formatTime(duration)}</span>
         </div>
 
-        {/* Total Time */}
-        <div className="order-[7] px-1 font-mono-tech text-sm min-w-[45px] text-center">
-          {isLive ? 'LIVE' : formatTime(duration)}
+        {/* Transport */}
+        <div className="flex flex-wrap items-center gap-2 mt-3">
+          <div className="flex items-center gap-1">
+            <button type="button" onClick={handlePrevTrack} aria-label="Previous track" title="Previous track" className="btn btn-icon">
+              <SkipBack className="fill-current" />
+            </button>
+            <button
+              type="button"
+              onClick={handleTogglePlayPause}
+              aria-label={isPlaying ? 'Pause music' : 'Play music'}
+              title={isPlaying ? 'Pause' : 'Play'}
+              className={`btn btn-icon !px-4 ${isPlaying ? 'is-on' : ''}`}
+            >
+              {isPlaying ? <Pause className="fill-current" /> : <Play className="fill-current" />}
+            </button>
+            <button type="button" onClick={handleStop} aria-label="Stop playback" title="Stop playback" className="btn btn-icon">
+              <Square className="fill-current" />
+            </button>
+            <button type="button" onClick={handleNextTrack} aria-label="Next track" title="Next track" className="btn btn-icon">
+              <SkipForward className="fill-current" />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1 ml-1">
+            <button
+              type="button"
+              onClick={handleToggleShuffle}
+              aria-label={isShuffle ? 'Disable shuffle mode' : 'Enable shuffle mode'}
+              aria-pressed={isShuffle}
+              title={isShuffle ? 'Shuffle: on' : 'Shuffle: off'}
+              className="btn btn-icon"
+            >
+              <Shuffle strokeWidth={2.5} />
+            </button>
+            <button
+              type="button"
+              onClick={handleCycleRepeat}
+              aria-label={`Repeat mode: ${repeatMode}`}
+              aria-pressed={repeatMode !== 'off'}
+              title={`Repeat: ${repeatMode}`}
+              className="btn btn-icon"
+            >
+              {repeatMode === 'one' ? <Repeat1 strokeWidth={2.5} /> : <Repeat strokeWidth={2.5} />}
+            </button>
+          </div>
+
+          <div className="ml-auto flex items-center gap-2">
+            <button type="button" onClick={() => setIsMuted(!isMuted)} aria-label={isMuted ? 'Unmute' : 'Mute'} className="btn btn-icon btn-ghost">
+              {isMuted || volume === 0 ? <VolumeX strokeWidth={2.5} /> : <Volume2 strokeWidth={2.5} />}
+            </button>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={isMuted ? 0 : volume}
+              onChange={(e) => {
+                setVolume(Number(e.target.value));
+                if (isMuted) setIsMuted(false);
+              }}
+              className="slider slider-thin !w-20 sm:!w-24"
+              aria-label="Volume control"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setShowPlaylist(!showPlaylist);
+                setShowSettings(false);
+              }}
+              aria-label="Toggle playlist and queue"
+              aria-pressed={showPlaylist}
+              title="Playlist & queue"
+              className="btn btn-sm ml-1"
+            >
+              <ListMusic className="w-4 h-4" strokeWidth={2.5} />
+              <span>Queue</span>
+              <span className="font-data text-base">{queue.length}</span>
+            </button>
+          </div>
         </div>
 
-        <div className="order-[8] basis-full h-0" aria-hidden="true" />
-
-        {/* Volume controls */}
-        <div className="order-[9] ml-auto flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setIsMuted(!isMuted)}
-            aria-label={isMuted ? 'Unmute' : 'Mute'}
-            className="p-1 hover:bg-neutral-300 dark:hover:bg-neutral-700 cursor-pointer"
-          >
-            {isMuted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-          </button>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={isMuted ? 0 : volume}
-            onChange={(e) => {
-              setVolume(Number(e.target.value));
-              if (isMuted) setIsMuted(false);
-            }}
-            className="retro-volume-slider w-16 sm:w-20"
-            aria-label="Volume control"
-          />
-        </div>
-
-        {/* Playlist & Settings Drawers */}
-        <div className="order-[10] flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => {
-              setShowPlaylist(!showPlaylist);
-              setShowSettings(false);
-            }}
-            aria-label="Toggle playlist and queue"
-            title="Playlist & Queue"
-            className={`p-1.5 border transition-colors cursor-pointer active:translate-y-0.5 ${
-              showPlaylist
-                ? 'bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900 border-neutral-800 dark:border-neutral-200'
-                : 'border-transparent hover:border-neutral-400 dark:hover:border-neutral-600 hover:bg-neutral-300 dark:hover:bg-neutral-700'
-            }`}
-          >
-            <ListMusic className="w-4 h-4" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setShowSettings(!showSettings);
-              setShowPlaylist(false);
-            }}
-            aria-label="Audio settings and YouTube URL loader"
-            title="Load YouTube URL or Playlist"
-            className={`p-1.5 border transition-colors cursor-pointer active:translate-y-0.5 ${
-              showSettings
-                ? 'bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900 border-neutral-800 dark:border-neutral-200'
-                : 'border-transparent hover:border-neutral-400 dark:hover:border-neutral-600 hover:bg-neutral-300 dark:hover:bg-neutral-700'
-            }`}
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-        </div>
-
+        {playbackError && (
+          <p role="alert" className="mt-2 text-base font-bold">
+            {playbackError}
+          </p>
+        )}
       </div>
-      {playbackError && (
-        <p role="alert" className="mt-2 text-sm font-mono-tech text-red-600 dark:text-red-400">
-          {playbackError}
-        </p>
-      )}
-    </div>
+    </section>
   );
 }

@@ -1,5 +1,5 @@
 /**
- * Pure timer and audio utilities for Pomodoro Focus
+ * Pure timer and audio utilities for Pomoflow
  */
 
 export function formatTime(totalSeconds: number): string {

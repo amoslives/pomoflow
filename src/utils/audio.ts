@@ -1,5 +1,5 @@
 /**
- * Web Audio synthesizer for Pomodoro Focus alerts and ambient soundscapes
+ * Web Audio synthesizer for Pomoflow alerts and ambient soundscapes
  */
 
 let audioCtx: AudioContext | null = null;

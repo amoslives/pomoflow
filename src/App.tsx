@@ -450,65 +450,75 @@ export default function App() {
   const totalDuration = (mode === 'work' ? workMinutes : breakMinutes) * 60;
 
   return (
-    <div className="min-h-screen w-full flex flex-col items-center justify-start py-4 sm:py-6 px-3 sm:px-6 transition-colors duration-200">
-      {/* Centered Main Box matching pomoflow */}
-      <main className="w-full max-w-3xl bg-[#cfcfcf] dark:bg-[#222222] border-2 border-neutral-400 dark:border-neutral-700 shadow-[6px_6px_0px_rgba(0,0,0,0.25)] dark:shadow-[6px_6px_0px_rgba(0,0,0,0.7)] p-4 sm:p-6 flex flex-col">
-        {/* Header with Navigation Tabs */}
-          <Header
-            isDark={isDark}
-            themeMode={themeMode}
-            onCycleTheme={cycleTheme}
-          activeTab={activeTab}
-          onChangeTab={setActiveTab}
-        />
+    <div className="min-h-screen w-full flex flex-col items-center">
+      <Header
+        isDark={isDark}
+        themeMode={themeMode}
+        onCycleTheme={cycleTheme}
+        activeTab={activeTab}
+        onChangeTab={setActiveTab}
+      />
 
-        {/* Tab 1: Timer & Tasks (Original Core Flow) */}
-        {activeTab === 'timer' && (
-          <>
-            <TimerCircle
-              mode={mode}
-              timeLeft={timeLeft}
-              totalDuration={totalDuration}
-              isRunning={isRunning}
-              workMinutes={workMinutes}
-              breakMinutes={breakMinutes}
-              onToggleStart={toggleTimer}
-              onReset={resetTimer}
-              onChangeWorkMinutes={handleWorkDurationChange}
-              onChangeBreakMinutes={handleBreakDurationChange}
-            />
-
-            <TaskList
-              tasks={tasks}
-              onAddTask={handleAddTask}
-              onToggleTask={handleToggleTask}
-              onUpdateTask={handleUpdateTask}
-              onDeleteTask={handleDeleteTask}
-              syncKey={syncKey}
-              syncStatus={syncStatus}
-              onOpenSyncModal={() => setIsSyncModalOpen(true)}
-            />
-          </>
-        )}
-
-        {/* Tab 2: Weekly Focus Analytics & Productivity Bar Chart */}
-        {activeTab === 'stats' && (
-          <div className="my-2">
-            <Suspense fallback={<div className="min-h-80 flex items-center justify-center font-pixel text-xl">Loading stats...</div>}>
-              <WeeklyStats
-                stats={focusStats}
-                isDark={isDark}
-                onGoToTimer={() => setActiveTab('timer')}
-              />
-            </Suspense>
+      <div className="w-full max-w-2xl flex flex-col px-3 sm:px-6 pt-6 sm:pt-10 pb-6">
+        <main className="window w-full">
+          <div className="titlebar">
+            <span className="titlebar-box left" aria-hidden="true" />
+            <h1 className="titlebar-title">{activeTab === 'timer' ? 'Timer' : 'Stats'}</h1>
+            <span className="titlebar-box right" aria-hidden="true" />
           </div>
-        )}
 
-        {/* Ambient & YouTube Audio Player Bar (Persistent across both tabs!) */}
+          <div className="window-body">
+            {activeTab === 'timer' && (
+              <>
+                <TimerCircle
+                  mode={mode}
+                  timeLeft={timeLeft}
+                  totalDuration={totalDuration}
+                  isRunning={isRunning}
+                  workMinutes={workMinutes}
+                  breakMinutes={breakMinutes}
+                  onToggleStart={toggleTimer}
+                  onReset={resetTimer}
+                  onChangeWorkMinutes={handleWorkDurationChange}
+                  onChangeBreakMinutes={handleBreakDurationChange}
+                />
+
+                <TaskList
+                  tasks={tasks}
+                  onAddTask={handleAddTask}
+                  onToggleTask={handleToggleTask}
+                  onUpdateTask={handleUpdateTask}
+                  onDeleteTask={handleDeleteTask}
+                  syncKey={syncKey}
+                  syncStatus={syncStatus}
+                  onOpenSyncModal={() => setIsSyncModalOpen(true)}
+                />
+              </>
+            )}
+
+            {activeTab === 'stats' && (
+              <Suspense fallback={<div className="min-h-80 flex items-center justify-center text-xl">Loading stats...</div>}>
+                <WeeklyStats
+                  stats={focusStats}
+                  isDark={isDark}
+                  onGoToTimer={() => setActiveTab('timer')}
+                />
+              </Suspense>
+            )}
+          </div>
+        </main>
+
+        {/* Music player, a window of its own, shown on both views */}
         <AudioPlayer />
-      </main>
 
-      {/* Cloudflare Sync Modal */}
+        <footer className="mt-5 flex justify-center">
+          <p className="statusline select-none">
+            <span className="hidden sm:inline">Space start/pause &nbsp; R reset &nbsp; D theme &nbsp;|&nbsp; </span>
+            {completedSessions} {completedSessions === 1 ? 'timer' : 'timers'} completed
+          </p>
+        </footer>
+      </div>
+
       <SyncModal
         isOpen={isSyncModalOpen}
         onClose={() => setIsSyncModalOpen(false)}
@@ -521,11 +531,6 @@ export default function App() {
         onDisconnect={handleDisconnectSync}
         onManualSync={() => syncKey && fetchTasksFromServer(syncKey)}
       />
-
-      {/* Footer shortcut hints */}
-      <footer className="mt-4 text-center font-pixel text-neutral-500 dark:text-neutral-400 text-sm sm:text-base tracking-wider select-none">
-        <span>[Space] Start / Pause</span> &bull; <span>[R] Reset</span> &bull; <span>[D] Theme</span> &bull; <span>Total Sessions: {completedSessions}</span>
-      </footer>
     </div>
   );
 }

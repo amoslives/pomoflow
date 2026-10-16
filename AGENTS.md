@@ -11,7 +11,7 @@ React 19 + Vite + Tailwind v4 Pomodoro timer SPA. One backend API (`/api/tasks`)
 - Browser tests: `npm run test:e2e` (Playwright, desktop and mobile Chromium). Full gate: `npm run check` = strict typecheck, unit/API tests, build, then browser tests.
 - Build: `npm run build` → `dist/` (Cloudflare Pages output dir).
 
-**Do not use bun on the maintainer's machine.** The network hands out a broken IPv6 route; curl/Node recover via Happy Eyeballs, but bun's HTTP client does not — `bun install` hangs forever at 0% CPU with sockets stuck in `SYN_SENT`. Diagnosed 2026-10-16.
+- Use npm, not bun; `package-lock.json` is the only supported lockfile.
 
 ## Dual backend — keep both in sync
 
@@ -28,4 +28,5 @@ The frontend calls the relative path `/api/tasks` (`src/App.tsx`), so it works a
 - `vite.config.ts` `DISABLE_HMR` logic is marked "Do not modify" (AI Studio agent-editing mode) — leave it as is.
 - `.data/tasks.json` is runtime state written by `server.ts`; delete it to reset local sync data.
 - `wrangler.toml` contains the production D1 and legacy-KV binding IDs; treat it as the Pages configuration source of truth.
+- D1 schema changes belong in numbered files under `migrations/`.
 - No env vars are required to run the app; `.env.example` documents the optional ones (`PORT`, `DISABLE_HMR`).

@@ -10,6 +10,7 @@ interface SyncModalProps {
   syncError: string | null;
   lastSynced: number | null;
   onSetSyncKey: (key: string) => void;
+  onRotateSyncKey: (key: string) => Promise<boolean>;
   onDisconnect: () => void;
   onManualSync: () => void;
 }
@@ -22,6 +23,7 @@ export function SyncModal({
   syncError,
   lastSynced,
   onSetSyncKey,
+  onRotateSyncKey,
   onDisconnect,
   onManualSync,
 }: SyncModalProps) {
@@ -44,11 +46,13 @@ export function SyncModal({
     onSetSyncKey(normalizedKey);
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     const newKey = generateSyncKey();
-    setInputKey(newKey);
     setErrorMsg('');
-    onSetSyncKey(newKey);
+    let changed = true;
+    if (syncKey) changed = await onRotateSyncKey(newKey);
+    else onSetSyncKey(newKey);
+    if (changed) setInputKey(newKey);
   };
 
   const shareableUrl = typeof window !== 'undefined' && syncKey
@@ -235,7 +239,7 @@ export function SyncModal({
               className="px-3 py-1 text-sm uppercase border border-neutral-500 hover:bg-neutral-300 dark:hover:bg-neutral-700 cursor-pointer flex items-center gap-1"
             >
               <Key className="w-3.5 h-3.5" />
-              <span>Generate Random Key</span>
+                <span>{syncKey ? 'Rotate Secure Key' : 'Generate Secure Key'}</span>
             </button>
 
             {syncKey && (

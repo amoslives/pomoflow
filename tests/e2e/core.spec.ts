@@ -30,7 +30,7 @@ test('stats start empty without manual or demo controls', async ({ page }) => {
 
 test('pairing creates a fragment link and local QR code', async ({ page }) => {
   await page.getByText('CLOUDFLARE SYNC', { exact: false }).first().click();
-  await page.getByRole('button', { name: /generate random key/i }).click();
+  await page.getByRole('button', { name: /generate secure key/i }).click();
   const key = await page.locator('input[placeholder*="my-work-tasks"]').inputValue();
   expect(key).toMatch(/^pf-[a-z2-7]{26}$/);
   await expect(page.locator('input[readonly]')).toHaveValue(new RegExp(`#sync=${key}$`));
@@ -39,6 +39,29 @@ test('pairing creates a fragment link and local QR code', async ({ page }) => {
   const qr = page.getByAltText('QR code containing the Pomoflow pairing link');
   await expect(qr).toBeVisible();
   await expect(qr).toHaveAttribute('src', /^data:image\/png;base64,/);
+});
+
+test('rotating a key revokes the old sync room', async ({ page }) => {
+  await page.getByText('CLOUDFLARE SYNC', { exact: false }).first().click();
+  await page.getByRole('button', { name: /generate secure key/i }).click();
+  const oldKey = await page.locator('input[placeholder*="my-work-tasks"]').inputValue();
+  await page.locator('button[aria-label="Close sync modal"]').click();
+  await page.locator('input[placeholder*="Add a new task"]').fill('Rotation test task');
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => {
+    const response = await page.request.get('/api/tasks', { headers: { Authorization: `Bearer ${oldKey}` } });
+    return (await response.json()).tasks.length;
+  }).toBe(1);
+
+  await page.getByText('CLOUDFLARE:', { exact: false }).first().click();
+  await page.getByRole('button', { name: /rotate secure key/i }).click();
+  const keyInput = page.locator('input[placeholder*="my-work-tasks"]');
+  await expect(keyInput).not.toHaveValue(oldKey);
+  const newKey = await keyInput.inputValue();
+  expect(newKey).not.toBe(oldKey);
+
+  const revoked = await page.request.get('/api/tasks', { headers: { Authorization: `Bearer ${oldKey}` } });
+  expect((await revoked.json()).tasks).toEqual([]);
 });
 
 test('malformed persisted data recovers without blanking the app', async ({ page }) => {

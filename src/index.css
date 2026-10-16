@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --font-pixel: 'VT323', 'Share Tech Mono', monospace;
+  --font-mono: 'Share Tech Mono', 'Courier New', monospace;
+}
+
+body {
+  font-family: 'VT323', 'Share Tech Mono', 'Courier New', monospace;
+  margin: 0;
+  padding: 0;
+  letter-spacing: 0.05em;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-pixel {
+  font-family: 'VT323', 'Share Tech Mono', monospace;
+}
+
+.font-mono-tech {
+  font-family: 'Share Tech Mono', monospace;
+}
+
+/* Retro Range Sliders */
+input[type="range"].retro-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"].retro-slider:focus {
+  outline: none;
+}
+
+input[type="range"].retro-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  background: #9ca3af;
+  border-radius: 0px;
+}
+
+.dark input[type="range"].retro-slider::-webkit-slider-runnable-track {
+  background: #4b5563;
+}
+
+input[type="range"].retro-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 18px;
+  background: #e5e7eb;
+  border: 2px solid #1f2937;
+  border-radius: 0;
+  margin-top: -6px;
+  box-shadow: 1px 1px 0px rgba(0,0,0,0.4);
+}
+
+.dark input[type="range"].retro-slider::-webkit-slider-thumb {
+  background: #374151;
+  border: 2px solid #f3f4f6;
+  box-shadow: 1px 1px 0px rgba(255,255,255,0.2);
+}
+
+/* Thin volume slider */
+input[type="range"].retro-volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"].retro-volume-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  background: #9ca3af;
+}
+
+.dark input[type="range"].retro-volume-slider::-webkit-slider-runnable-track {
+  background: #4b5563;
+}
+
+input[type="range"].retro-volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 14px;
+  background: #e5e7eb;
+  border: 1.5px solid #1f2937;
+  border-radius: 0;
+  margin-top: -5px;
+}
+
+.dark input[type="range"].retro-volume-slider::-webkit-slider-thumb {
+  background: #374151;
+  border: 1.5px solid #f3f4f6;
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marquee 16s linear infinite;
+}

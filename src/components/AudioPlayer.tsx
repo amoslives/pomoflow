@@ -1,0 +1,811 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  Play,
+  Pause,
+  Square,
+  SkipBack,
+  SkipForward,
+  Shuffle,
+  Repeat,
+  Repeat1,
+  Volume2,
+  VolumeX,
+  Settings,
+  ListMusic,
+  Plus,
+  Trash2,
+  Check,
+  Radio,
+  ExternalLink
+} from 'lucide-react';
+import { formatTime } from '../utils/timer';
+import { ambientSound } from '../utils/audio';
+import {
+  parseYouTubeSource,
+  getNextTrackIndex,
+  getPrevTrackIndex,
+  RepeatMode,
+} from '../utils/youtube';
+
+// Declare YT for window
+declare global {
+  interface Window {
+    YT: any;
+    onYouTubeIframeAPIReady: () => void;
+  }
+}
+
+export interface TrackItem {
+  id: string;
+  title: string;
+  sourceType: 'youtube-video' | 'youtube-playlist' | 'ambient';
+  youtubeId?: string;
+  playlistId?: string;
+  ambientMode?: 'rain' | 'drone' | 'whitenoise';
+  author?: string;
+}
+
+const PRESET_COLLECTIONS: TrackItem[] = [
+  {
+    id: 'preset-lofi-girl',
+    title: 'Lofi Girl - Relaxing Beats to Study/Chill to',
+    sourceType: 'youtube-video',
+    youtubeId: 'jfKfPfyJRdk',
+    author: 'Lofi Girl',
+  },
+  {
+    id: 'preset-synthwave',
+    title: 'Synthwave Radio - Chill Retro Beats',
+    sourceType: 'youtube-video',
+    youtubeId: '4xDzrJKXOOY',
+    author: 'Lofi Girl / Synthwave',
+  },
+  {
+    id: 'preset-lofi-playlist',
+    title: 'Top Lofi Hip Hop Study Playlist',
+    sourceType: 'youtube-playlist',
+    playlistId: 'PLofht4PTcKYnaH8w5zyJoi66651ZGCduU',
+    author: 'Curated Focus Playlist',
+  },
+  {
+    id: 'preset-classical-focus',
+    title: 'Classical Music for Brain Power & Studying',
+    sourceType: 'youtube-video',
+    youtubeId: 'WPni755-Krg',
+    author: 'HALIDONMUSIC',
+  },
+  {
+    id: 'preset-rain-ambient',
+    title: 'Rain on Window (Synthesized Soundscape)',
+    sourceType: 'ambient',
+    ambientMode: 'rain',
+    author: 'Built-in Synth',
+  },
+  {
+    id: 'preset-deep-drone',
+    title: 'Deep Focus Drone (432Hz Ambient Flow)',
+    sourceType: 'ambient',
+    ambientMode: 'drone',
+    author: 'Built-in Synth',
+  },
+  {
+    id: 'preset-white-noise',
+    title: 'Pure Gentle White Noise',
+    sourceType: 'ambient',
+    ambientMode: 'whitenoise',
+    author: 'Built-in Synth',
+  },
+];
+
+export function AudioPlayer() {
+  const [showSettings, setShowSettings] = useState(false);
+  const [showPlaylist, setShowPlaylist] = useState(false);
+  const [urlInput, setUrlInput] = useState('');
+  const [inputTitle, setInputTitle] = useState('');
+  const [queue, setQueue] = useState<TrackItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('pomodoro_music_queue');
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch {}
+      }
+    }
+    return PRESET_COLLECTIONS;
+  });
+
+  const [currentTrackIndex, setCurrentTrackIndex] = useState<number>(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isShuffle, setIsShuffle] = useState(false);
+  const [repeatMode, setRepeatMode] = useState<RepeatMode>('all');
+  const [volume, setVolume] = useState(50);
+  const [isMuted, setIsMuted] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [liveTitle, setLiveTitle] = useState<string>('');
+  const [playedIndices, setPlayedIndices] = useState<number[]>([]);
+  const [apiReady, setApiReady] = useState(false);
+
+  const ytPlayerRef = useRef<any>(null);
+  const timerIntervalRef = useRef<number | null>(null);
+
+  const currentTrack: TrackItem | undefined = queue[currentTrackIndex];
+
+  // Save queue
+  useEffect(() => {
+    localStorage.setItem('pomodoro_music_queue', JSON.stringify(queue));
+  }, [queue]);
+
+  // Load YouTube Iframe API once
+  useEffect(() => {
+    if (window.YT && window.YT.Player) {
+      setApiReady(true);
+      return;
+    }
+
+    const previousOnReady = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      if (previousOnReady) previousOnReady();
+      setApiReady(true);
+    };
+
+    if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag?.parentNode?.insertBefore(tag, firstScriptTag);
+    }
+  }, []);
+
+  // Update volume
+  useEffect(() => {
+    const effectiveVol = isMuted ? 0 : volume;
+    ambientSound.setVolume(effectiveVol / 100);
+
+    if (ytPlayerRef.current && typeof ytPlayerRef.current.setVolume === 'function') {
+      try {
+        ytPlayerRef.current.setVolume(effectiveVol);
+        if (isMuted && typeof ytPlayerRef.current.mute === 'function') {
+          ytPlayerRef.current.mute();
+        } else if (!isMuted && typeof ytPlayerRef.current.unMute === 'function') {
+          ytPlayerRef.current.unMute();
+        }
+      } catch {}
+    }
+  }, [volume, isMuted]);
+
+  // Play next track
+  const handleNextTrack = useCallback(() => {
+    if (queue.length === 0) return;
+
+    // If native YT playlist is playing and has multiple tracks, try native nextVideo
+    if (currentTrack?.sourceType === 'youtube-playlist' && ytPlayerRef.current && typeof ytPlayerRef.current.nextVideo === 'function') {
+      try {
+        ytPlayerRef.current.nextVideo();
+        return;
+      } catch {}
+    }
+
+    const unplayed = queue
+      .map((_, i) => i)
+      .filter((i) => !playedIndices.includes(i) && i !== currentTrackIndex);
+
+    const nextIndex = getNextTrackIndex(
+      currentTrackIndex,
+      queue.length,
+      isShuffle,
+      repeatMode,
+      unplayed
+    );
+
+    setPlayedIndices((prev) => [...prev, nextIndex]);
+    playTrackAtIndex(nextIndex);
+  }, [queue, currentTrackIndex, isShuffle, repeatMode, playedIndices, currentTrack]);
+
+  // Play previous track
+  const handlePrevTrack = useCallback(() => {
+    if (queue.length === 0) return;
+
+    if (currentTrack?.sourceType === 'youtube-playlist' && ytPlayerRef.current && typeof ytPlayerRef.current.previousVideo === 'function') {
+      try {
+        ytPlayerRef.current.previousVideo();
+        return;
+      } catch {}
+    }
+
+    const prevIndex = getPrevTrackIndex(currentTrackIndex, queue.length, repeatMode);
+    playTrackAtIndex(prevIndex);
+  }, [queue, currentTrackIndex, repeatMode, currentTrack]);
+
+  // Play track at specified index
+  const playTrackAtIndex = (index: number) => {
+    if (index < 0 || index >= queue.length) return;
+    setCurrentTrackIndex(index);
+    const track = queue[index];
+    setCurrentTime(0);
+    setDuration(0);
+
+    if (track.sourceType === 'ambient') {
+      if (ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
+        try {
+          ytPlayerRef.current.pauseVideo();
+        } catch {}
+      }
+      setLiveTitle(track.title);
+      if (track.ambientMode === 'rain') ambientSound.playRain();
+      else if (track.ambientMode === 'drone') ambientSound.playDrone();
+      else if (track.ambientMode === 'whitenoise') ambientSound.playWhiteNoise();
+      setIsPlaying(true);
+    } else {
+      ambientSound.stop();
+      loadYouTubeSource(track);
+    }
+  };
+
+  const loadYouTubeSource = (track: TrackItem) => {
+    if (!window.YT || !window.YT.Player) return;
+
+    const onPlayerReady = (event: any) => {
+      ytPlayerRef.current = event.target;
+      event.target.setVolume(isMuted ? 0 : volume);
+      if (isShuffle && typeof event.target.setShuffle === 'function') {
+        event.target.setShuffle(true);
+      }
+      if (repeatMode === 'all' && typeof event.target.setLoop === 'function') {
+        event.target.setLoop(true);
+      }
+      event.target.playVideo();
+      setIsPlaying(true);
+    };
+
+    const onPlayerStateChange = (event: any) => {
+      // 1 = playing, 2 = paused, 0 = ended
+      if (event.data === 1) {
+        setIsPlaying(true);
+        try {
+          const videoData = event.target.getVideoData();
+          if (videoData && videoData.title) {
+            setLiveTitle(videoData.title);
+          }
+        } catch {}
+      } else if (event.data === 2) {
+        setIsPlaying(false);
+      } else if (event.data === 0) {
+        // Track ended
+        handleNextTrack();
+      }
+    };
+
+    const onError = () => {
+      // If video blocked or unavailable, skip to next track
+      handleNextTrack();
+    };
+
+    // If player already exists, use existing instance methods
+    if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
+      try {
+        if (track.sourceType === 'youtube-playlist' && track.playlistId) {
+          ytPlayerRef.current.loadPlaylist({
+            list: track.playlistId,
+            listType: 'playlist',
+            index: 0,
+          });
+        } else if (track.youtubeId) {
+          ytPlayerRef.current.loadVideoById(track.youtubeId);
+        }
+        ytPlayerRef.current.playVideo();
+        setIsPlaying(true);
+        return;
+      } catch {}
+    }
+
+    // Destroy prior player if needed
+    if (ytPlayerRef.current && typeof ytPlayerRef.current.destroy === 'function') {
+      try {
+        ytPlayerRef.current.destroy();
+      } catch {}
+    }
+
+    const playerConfig: any = {
+      height: '1',
+      width: '1',
+      playerVars: {
+        autoplay: 1,
+        controls: 0,
+        disablekb: 1,
+        fs: 0,
+        modestbranding: 1,
+        rel: 0,
+      },
+      events: {
+        onReady: onPlayerReady,
+        onStateChange: onPlayerStateChange,
+        onError: onError,
+      },
+    };
+
+    if (track.sourceType === 'youtube-playlist' && track.playlistId) {
+      playerConfig.playerVars.listType = 'playlist';
+      playerConfig.playerVars.list = track.playlistId;
+    } else if (track.youtubeId) {
+      playerConfig.videoId = track.youtubeId;
+    }
+
+    try {
+      ytPlayerRef.current = new window.YT.Player('youtube-player-element', playerConfig);
+    } catch {}
+  };
+
+  // Sync playback time & duration
+  useEffect(() => {
+    if (isPlaying) {
+      timerIntervalRef.current = window.setInterval(() => {
+        if (currentTrack?.sourceType !== 'ambient' && ytPlayerRef.current) {
+          try {
+            if (typeof ytPlayerRef.current.getCurrentTime === 'function') {
+              const curr = ytPlayerRef.current.getCurrentTime() || 0;
+              const dur = ytPlayerRef.current.getDuration() || 0;
+              setCurrentTime(curr);
+              setDuration(dur);
+            }
+            if (typeof ytPlayerRef.current.getVideoData === 'function') {
+              const data = ytPlayerRef.current.getVideoData();
+              if (data && data.title && data.title !== liveTitle) {
+                setLiveTitle(data.title);
+              }
+            }
+          } catch {}
+        } else {
+          setCurrentTime((prev) => prev + 1);
+        }
+      }, 1000);
+    } else {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+      }
+    }
+
+    return () => {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
+  }, [isPlaying, currentTrack, liveTitle]);
+
+  // Toggle Play / Pause
+  const handleTogglePlayPause = () => {
+    if (!currentTrack) {
+      if (queue.length > 0) {
+        playTrackAtIndex(0);
+      }
+      return;
+    }
+
+    if (isPlaying) {
+      if (currentTrack.sourceType === 'ambient') {
+        ambientSound.stop();
+      } else if (ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
+        try {
+          ytPlayerRef.current.pauseVideo();
+        } catch {}
+      }
+      setIsPlaying(false);
+    } else {
+      if (currentTrack.sourceType === 'ambient') {
+        playTrackAtIndex(currentTrackIndex);
+      } else if (ytPlayerRef.current && typeof ytPlayerRef.current.playVideo === 'function') {
+        try {
+          ytPlayerRef.current.playVideo();
+          setIsPlaying(true);
+        } catch {
+          playTrackAtIndex(currentTrackIndex);
+        }
+      } else {
+        playTrackAtIndex(currentTrackIndex);
+      }
+    }
+  };
+
+  // Stop Playback
+  const handleStop = () => {
+    if (currentTrack?.sourceType === 'ambient') {
+      ambientSound.stop();
+    } else if (ytPlayerRef.current && typeof ytPlayerRef.current.stopVideo === 'function') {
+      try {
+        ytPlayerRef.current.stopVideo();
+      } catch {}
+    }
+    setIsPlaying(false);
+    setCurrentTime(0);
+  };
+
+  // Toggle Shuffle
+  const handleToggleShuffle = () => {
+    const nextShuffle = !isShuffle;
+    setIsShuffle(nextShuffle);
+    if (ytPlayerRef.current && typeof ytPlayerRef.current.setShuffle === 'function') {
+      try {
+        ytPlayerRef.current.setShuffle(nextShuffle);
+      } catch {}
+    }
+  };
+
+  // Cycle Repeat Mode: off -> all -> one
+  const handleCycleRepeat = () => {
+    const modes: RepeatMode[] = ['off', 'all', 'one'];
+    const nextIdx = (modes.indexOf(repeatMode) + 1) % modes.length;
+    const nextMode = modes[nextIdx];
+    setRepeatMode(nextMode);
+
+    if (ytPlayerRef.current && typeof ytPlayerRef.current.setLoop === 'function') {
+      try {
+        ytPlayerRef.current.setLoop(nextMode === 'all');
+      } catch {}
+    }
+  };
+
+  // Add source (song or playlist) to queue
+  const handleAddSource = (e: React.FormEvent) => {
+    e.preventDefault();
+    const source = parseYouTubeSource(urlInput);
+    if (!source) return;
+
+    const newTrack: TrackItem = {
+      id: `custom-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      title: inputTitle.trim() || (source.type === 'playlist' ? `YouTube Playlist: ${source.id}` : `YouTube Track: ${source.id}`),
+      sourceType: source.type === 'playlist' ? 'youtube-playlist' : 'youtube-video',
+      youtubeId: source.type === 'video' ? source.id : undefined,
+      playlistId: source.type === 'playlist' ? source.id : undefined,
+      author: 'YouTube',
+    };
+
+    setQueue((prev) => [newTrack, ...prev]);
+    setUrlInput('');
+    setInputTitle('');
+    setShowSettings(false);
+    playTrackAtIndex(0);
+  };
+
+  // Remove track from queue
+  const handleRemoveTrack = (id: string, index: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setQueue((prev) => prev.filter((t) => t.id !== id));
+    if (index === currentTrackIndex) {
+      handleStop();
+    } else if (index < currentTrackIndex) {
+      setCurrentTrackIndex((prev) => Math.max(0, prev - 1));
+    }
+  };
+
+  const displayTitle = liveTitle || currentTrack?.title || 'No track loaded';
+
+  return (
+    <div className="w-full mt-5 font-pixel select-none">
+      {/* Hidden YouTube API container */}
+      <div className="absolute -top-[9999px] -left-[9999px] pointer-events-none opacity-0">
+        <div id="youtube-player-element" />
+      </div>
+
+      {/* Settings & Add Track / Playlist Panel */}
+      {showSettings && (
+        <div className="w-full mb-3 p-3 bg-neutral-200 dark:bg-neutral-800 border-2 border-neutral-400 dark:border-neutral-700 shadow-[3px_3px_0px_rgba(0,0,0,0.2)]">
+          <div className="flex items-center justify-between pb-2 mb-3 border-b border-neutral-300 dark:border-neutral-700">
+            <h3 className="text-xl sm:text-2xl font-bold uppercase tracking-wider text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
+              <Radio className="w-5 h-5" />
+              <span>Load YouTube Song or Playlist</span>
+            </h3>
+            <button
+              type="button"
+              onClick={() => setShowSettings(false)}
+              className="text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 text-lg uppercase cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
+
+          <form onSubmit={handleAddSource} className="space-y-2 mb-3">
+            <input
+              type="text"
+              value={urlInput}
+              onChange={(e) => setUrlInput(e.target.value)}
+              placeholder="Paste YouTube song URL, video ID, or playlist URL (e.g. youtube.com/playlist?list=...)"
+              className="w-full px-3 py-1.5 bg-white dark:bg-neutral-900 border border-neutral-500 text-neutral-900 dark:text-neutral-100 text-lg placeholder:text-neutral-400 focus:outline-none"
+            />
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <input
+                type="text"
+                value={inputTitle}
+                onChange={(e) => setInputTitle(e.target.value)}
+                placeholder="Custom Label / Title (Optional)"
+                className="flex-1 px-3 py-1.5 bg-white dark:bg-neutral-900 border border-neutral-500 text-neutral-900 dark:text-neutral-100 text-lg placeholder:text-neutral-400 focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={!urlInput.trim()}
+                className="px-5 py-1.5 bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900 uppercase text-lg border border-neutral-800 dark:border-neutral-200 cursor-pointer disabled:opacity-40 hover:bg-neutral-700 dark:hover:bg-neutral-300 transition-colors flex items-center justify-center gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Load & Play</span>
+              </button>
+            </div>
+          </form>
+
+          {/* Preset focus stations */}
+          <div className="pt-2 border-t border-neutral-300 dark:border-neutral-700">
+            <span className="text-sm uppercase text-neutral-500 dark:text-neutral-400 block mb-1.5 font-bold">
+              Curated Focus Stations & Playlists:
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {PRESET_COLLECTIONS.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => {
+                    // Check if already in queue
+                    const existingIdx = queue.findIndex((q) => q.id === preset.id);
+                    if (existingIdx !== -1) {
+                      playTrackAtIndex(existingIdx);
+                    } else {
+                      setQueue((prev) => [preset, ...prev]);
+                      playTrackAtIndex(0);
+                    }
+                    setShowSettings(false);
+                  }}
+                  className={`px-2 py-1 text-xs sm:text-sm border cursor-pointer uppercase transition-colors ${
+                    currentTrack?.id === preset.id
+                      ? 'bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900 border-neutral-800 dark:border-neutral-200 font-bold'
+                      : 'bg-white/60 dark:bg-neutral-900/60 text-neutral-800 dark:text-neutral-200 border-neutral-400 dark:border-neutral-600 hover:bg-neutral-300 dark:hover:bg-neutral-700'
+                  }`}
+                >
+                  {preset.title.split(' - ')[0]}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Playlist / Queue Drawer */}
+      {showPlaylist && (
+        <div className="w-full mb-3 p-3 bg-neutral-200 dark:bg-neutral-800 border-2 border-neutral-400 dark:border-neutral-700 shadow-[3px_3px_0px_rgba(0,0,0,0.2)]">
+          <div className="flex items-center justify-between pb-2 mb-2 border-b border-neutral-300 dark:border-neutral-700">
+            <h3 className="text-xl sm:text-2xl font-bold uppercase tracking-wider text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
+              <ListMusic className="w-5 h-5" />
+              <span>Current Playlist & Queue ({queue.length})</span>
+            </h3>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setQueue(PRESET_COLLECTIONS)}
+                className="text-xs uppercase text-neutral-600 dark:text-neutral-400 hover:underline cursor-pointer"
+              >
+                Reset Presets
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowPlaylist(false)}
+                className="text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 text-lg uppercase cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+
+          <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1">
+            {queue.map((track, idx) => (
+              <div
+                key={track.id}
+                onClick={() => playTrackAtIndex(idx)}
+                className={`group flex items-center justify-between p-2 text-sm sm:text-base border cursor-pointer transition-colors ${
+                  idx === currentTrackIndex
+                    ? 'bg-neutral-800 text-white dark:bg-neutral-100 dark:text-neutral-900 border-neutral-900 dark:border-neutral-100 font-bold'
+                    : 'bg-white/70 dark:bg-neutral-900/70 text-neutral-800 dark:text-neutral-200 border-neutral-300 dark:border-neutral-700 hover:border-neutral-500'
+                }`}
+              >
+                <div className="flex items-center gap-2 truncate mr-2">
+                  <span className="w-5 text-center font-mono-tech text-xs opacity-70">
+                    {idx === currentTrackIndex && isPlaying ? '▶' : `${idx + 1}.`}
+                  </span>
+                  <span className="truncate">{track.title}</span>
+                  {track.sourceType === 'youtube-playlist' && (
+                    <span className="px-1 text-[10px] uppercase border border-current opacity-80">
+                      Playlist
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={(e) => handleRemoveTrack(track.id, idx, e)}
+                    aria-label={`Remove ${track.title}`}
+                    className="p-1 opacity-70 hover:opacity-100 hover:text-red-500 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Docked Retro Player Bar */}
+      <div className="w-full flex flex-col md:flex-row items-center gap-3 p-2.5 border-2 border-neutral-400 dark:border-neutral-700 bg-neutral-200/90 dark:bg-neutral-800/90 backdrop-blur-sm text-neutral-800 dark:text-neutral-200 shadow-[3px_3px_0px_rgba(0,0,0,0.2)]">
+        {/* Track Title Display */}
+        <div className="w-full md:w-56 lg:w-72 overflow-hidden px-2.5 py-1 bg-white dark:bg-neutral-900 border border-neutral-400 dark:border-neutral-600 text-sm sm:text-base flex items-center h-8">
+          <div className="w-full truncate font-mono-tech text-neutral-800 dark:text-neutral-200">
+            {displayTitle}
+          </div>
+        </div>
+
+        {/* Current Time */}
+        <div className="px-1.5 font-mono-tech text-sm min-w-[45px] text-center">
+          {formatTime(currentTime)}
+        </div>
+
+        {/* Transport Controls */}
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handlePrevTrack}
+            aria-label="Previous track"
+            title="Previous track"
+            className="p-1.5 hover:bg-neutral-300 dark:hover:bg-neutral-700 transition-colors border border-transparent hover:border-neutral-400 dark:hover:border-neutral-600 cursor-pointer active:translate-y-0.5"
+          >
+            <SkipBack className="w-4 h-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={handleTogglePlayPause}
+            aria-label={isPlaying ? 'Pause music' : 'Play music'}
+            title={isPlaying ? 'Pause' : 'Play'}
+            className="p-1.5 bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900 hover:bg-neutral-700 dark:hover:bg-neutral-300 transition-colors cursor-pointer active:translate-y-0.5"
+          >
+            {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleStop}
+            aria-label="Stop playback"
+            title="Stop playback"
+            className="p-1.5 hover:bg-neutral-300 dark:hover:bg-neutral-700 transition-colors border border-transparent hover:border-neutral-400 dark:hover:border-neutral-600 cursor-pointer active:translate-y-0.5"
+          >
+            <Square className="w-4 h-4 fill-current" />
+          </button>
+
+          <button
+            type="button"
+            onClick={handleNextTrack}
+            aria-label="Next track"
+            title="Next track"
+            className="p-1.5 hover:bg-neutral-300 dark:hover:bg-neutral-700 transition-colors border border-transparent hover:border-neutral-400 dark:hover:border-neutral-600 cursor-pointer active:translate-y-0.5"
+          >
+            <SkipForward className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Shuffle & Repeat Controls */}
+        <div className="flex items-center gap-1 border-x border-neutral-300 dark:border-neutral-700 px-1">
+          {/* Shuffle Mode Button */}
+          <button
+            type="button"
+            onClick={handleToggleShuffle}
+            aria-label={isShuffle ? 'Disable shuffle mode' : 'Enable shuffle mode'}
+            title={isShuffle ? 'Shuffle: ON' : 'Shuffle: OFF'}
+            className={`p-1.5 border transition-all cursor-pointer active:translate-y-0.5 ${
+              isShuffle
+                ? 'bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900 border-neutral-800 dark:border-neutral-200'
+                : 'border-transparent text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 hover:border-neutral-400'
+            }`}
+          >
+            <Shuffle className="w-4 h-4" />
+          </button>
+
+          {/* Repeat Mode Button */}
+          <button
+            type="button"
+            onClick={handleCycleRepeat}
+            aria-label={`Repeat mode: ${repeatMode}`}
+            title={`Repeat: ${repeatMode}`}
+            className={`p-1.5 border transition-all cursor-pointer active:translate-y-0.5 ${
+              repeatMode !== 'off'
+                ? 'bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900 border-neutral-800 dark:border-neutral-200'
+                : 'border-transparent text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 hover:border-neutral-400'
+            }`}
+          >
+            {repeatMode === 'one' ? <Repeat1 className="w-4 h-4" /> : <Repeat className="w-4 h-4" />}
+          </button>
+        </div>
+
+        {/* Seek Progress Slider */}
+        <div className="flex-1 w-full flex items-center px-1">
+          <input
+            type="range"
+            min="0"
+            max={duration || 100}
+            value={currentTime}
+            onChange={(e) => {
+              const newTime = Number(e.target.value);
+              setCurrentTime(newTime);
+              if (currentTrack?.sourceType !== 'ambient' && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
+                try {
+                  ytPlayerRef.current.seekTo(newTime, true);
+                } catch {}
+              }
+            }}
+            disabled={!currentTrack || currentTrack.sourceType === 'ambient'}
+            className="retro-volume-slider w-full disabled:opacity-40"
+            aria-label="Track progress"
+          />
+        </div>
+
+        {/* Volume controls */}
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setIsMuted(!isMuted)}
+            aria-label={isMuted ? 'Unmute' : 'Mute'}
+            className="p-1 hover:bg-neutral-300 dark:hover:bg-neutral-700 cursor-pointer"
+          >
+            {isMuted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+          </button>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={isMuted ? 0 : volume}
+            onChange={(e) => {
+              setVolume(Number(e.target.value));
+              if (isMuted) setIsMuted(false);
+            }}
+            className="retro-volume-slider w-16 sm:w-20"
+            aria-label="Volume control"
+          />
+        </div>
+
+        {/* Playlist & Settings Drawers */}
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => {
+              setShowPlaylist(!showPlaylist);
+              setShowSettings(false);
+            }}
+            aria-label="Toggle playlist and queue"
+            title="Playlist & Queue"
+            className={`p-1.5 border transition-colors cursor-pointer active:translate-y-0.5 ${
+              showPlaylist
+                ? 'bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900 border-neutral-800 dark:border-neutral-200'
+                : 'border-transparent hover:border-neutral-400 dark:hover:border-neutral-600 hover:bg-neutral-300 dark:hover:bg-neutral-700'
+            }`}
+          >
+            <ListMusic className="w-4 h-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setShowSettings(!showSettings);
+              setShowPlaylist(false);
+            }}
+            aria-label="Audio settings and YouTube URL loader"
+            title="Load YouTube URL or Playlist"
+            className={`p-1.5 border transition-colors cursor-pointer active:translate-y-0.5 ${
+              showSettings
+                ? 'bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900 border-neutral-800 dark:border-neutral-200'
+                : 'border-transparent hover:border-neutral-400 dark:hover:border-neutral-600 hover:bg-neutral-300 dark:hover:bg-neutral-700'
+            }`}
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Total Time */}
+        <div className="px-1 font-mono-tech text-sm min-w-[45px] text-center hidden sm:block">
+          {formatTime(duration)}
+        </div>
+      </div>
+    </div>
+  );
+}

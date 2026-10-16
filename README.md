@@ -1,115 +1,101 @@
-# Pomodoro Focus ⏱️
+# Pomoflow
 
-A retro pixel-style Pomodoro productivity timer with customizable intervals, task management, a YouTube audio player, cross-device task sync with Cloudflare, and weekly productivity visualization.
+[![CI](https://github.com/amoslives/pomoflow/actions/workflows/ci.yml/badge.svg)](https://github.com/amoslives/pomoflow/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
+
+A retro pixel-style Pomodoro timer with tasks, YouTube audio, cross-device sync, and focus statistics.
 
 **Live app:** [pomoflow.pages.dev](https://pomoflow.pages.dev)
 
----
+## Features
 
-## ✨ Features
+- Configurable work and break timers with completion chimes and browser notifications
+- Task creation, editing, completion, deletion, and revision-safe cross-device sync
+- Secure QR/share-link device pairing backed by Cloudflare Pages Functions and D1
+- YouTube videos and playlists with queue management, shuffle, repeat, live-stream handling, and seeking
+- Seven-day focus statistics based on the actual duration of completed work timers
+- Responsive light and dark pixel UI
 
-- **Retro Pixel & Monochrome Aesthetic**:
-  - Pixel typography using Google Fonts `VT323` and `Share Tech Mono`.
-  - Classic retro card container with square borders, drop shadows, and clean retro range sliders.
-  - Seamless Dark and Light mode themes with instant toggle and local storage persistence.
-- **Pomodoro Timer**:
-  - Circular SVG progress ring with large digital countdown (`25:00`).
-  - Active session indicator badge (`Work` vs `Break`).
-  - Retro sliders for Work duration (1–90 min) and Break duration (1–45 min), locked during active countdowns with `(pause to change)` hints.
-  - Web Audio 8-bit chimes for session completion and optional browser notifications.
-- **Task Management**:
-  - Inline task input with retro `+` button and `Enter` key creation.
-  - Custom retro checkboxes separating pending and completed tasks.
-  - Inline title editing and deletion with hover/tap actions.
-  - Cross-device sync supported via Cloudflare Pages Functions and D1 revision-checked storage.
-- **Docked Audio Player**:
-  - **YouTube API Integration**: Load and play any individual YouTube song/video or playlist URL/ID.
-  - **Shuffle & Repeat Modes**: Randomize playlist playback using Fisher-Yates and toggle Repeat One, Repeat All, or Repeat Off.
-  - **Queue / Playlist Manager**: Expand the drawer to inspect loaded tracks, see active track indicator (`▶`), jump directly to tracks, or remove items.
-- **Weekly Focus Analytics**:
-  - Separate **[Stats]** tab powered by **Recharts**.
-  - Bar chart showing actual focus minutes across the past 7 days.
-  - Metric summary cards: completed sessions, focus time, daily average, and peak day.
-  - Completing a work timer automatically records its configured duration; resets and abandoned timers do not count.
-- **Cloudflare Cross-Device Sync**:
-  - Generate a high-entropy pairing credential or connect an existing legacy key.
-  - Shareable fragment link (`https://yourdomain.com/#sync=YOUR_KEY`) pairs another device without sending the credential in the initial HTTP request.
-  - Revision-checked writes and deletion tombstones prevent stale devices from silently overwriting task changes.
+## Pairing security
 
----
+Cross-device sync uses a randomly generated 128-bit capability credential. Anyone who has a pairing link can access that sync room.
 
-## ⌨️ Keyboard Shortcuts
+- Share pairing links only with devices you control.
+- Never post a pairing link in an issue, screenshot, chat, or log.
+- Use **Rotate Secure Key** to revoke the old room credential and generate a replacement.
+- Pairing credentials travel in the URL fragment (`#sync=...`) and are removed from the address bar after import.
+
+Pomoflow can also be used locally without enabling sync.
+
+## Keyboard shortcuts
 
 | Shortcut | Action |
 | --- | --- |
-| `[Space]` | Start / Pause timer |
-| `[R]` | Reset timer to current interval |
-| `[D]` | Toggle Dark / Light theme |
+| `Space` | Start or pause the timer |
+| `R` | Reset the current interval |
+| `D` | Toggle light or dark mode |
 
-*(Shortcuts are automatically suppressed when typing inside input fields).*
+Shortcuts are disabled while focus is inside an input field.
 
----
+## Tech stack
 
-## 🛠️ Tech Stack
+- React 19, TypeScript, Vite, and Tailwind CSS v4
+- Recharts, loaded only when the Stats view is opened
+- YouTube IFrame Player API and Web Audio timer alerts
+- Express for local development
+- Cloudflare Pages Functions with revisioned D1 task storage
+- Node native tests and Playwright desktop/mobile browser tests
 
-- **Frontend**: [React 19](https://react.dev/), [TypeScript](https://www.typescriptlang.org/), [Vite](https://vitejs.dev/)
-- **Styling**: [Tailwind CSS v4](https://tailwindcss.com/)
-- **Charts**: [Recharts](https://recharts.org/)
-- **Icons**: [Lucide React](https://lucide.dev/)
-- **Audio**: Web Audio API (8-bit timer alerts) + YouTube Iframe Player API
-- **Backend / Edge Functions**:
-  - Local Dev & Container: Node.js + [Express](https://expressjs.com/) (`server.ts`)
-  - Cloudflare Pages: [Cloudflare Pages Functions](https://developers.cloudflare.com/pages/platform/functions/) (`/functions/api/tasks.ts`) + [Cloudflare D1](https://developers.cloudflare.com/d1/) (`TASKS_DB`)
-- **Testing**: Node.js native test runner (`node:test`, `node:assert/strict`)
+## Local development
 
----
+### Requirements
 
-## 🚀 Getting Started Locally
+- Node.js 24+
+- npm
 
-### Prerequisites
-- Node.js 23.6+ (tests use the native test runner on `.ts` files, which requires TypeScript type stripping)
-
-### Installation
 ```bash
-# Clone the repository
-git clone https://github.com/<your-username>/<your-repo-name>.git
-cd <your-repo-name>
-
-# Install dependencies
+git clone https://github.com/amoslives/pomoflow.git
+cd pomoflow
 npm install
-
-# Start the full-stack dev server (port 3000)
 npm run dev
 ```
 
-Visit `http://localhost:3000` in your browser.
+Open [http://localhost:3000](http://localhost:3000).
 
-### Typecheck
-```bash
-npm run lint   # runs tsc --noEmit; there is no ESLint
-```
+Local cross-device task data is stored in the gitignored `.data/tasks.json` file.
 
-### Running Unit Tests
+## Verification
+
 ```bash
+# Strict TypeScript
+npm run lint
+
+# Unit and API contract tests
 npm test
-# Or directly via Node's native test runner:
-node --test src/utils/*.test.ts
+
+# Desktop and mobile Chromium tests
+npm run test:e2e
+
+# Typecheck, tests, production build, and browser tests
+npm run check
 ```
 
-### Production Build
-```bash
-npm run build
-```
+Pull requests and pushes to `main` run the same checks in GitHub Actions. Cloudflare Pages also creates a preview deployment for each branch.
 
----
+## Cloudflare resources
 
-## ☁️ Cloudflare Pages Hosting (Subdomain Deployment)
+`wrangler.toml` is the deployment configuration source of truth.
 
-For a complete step-by-step walkthrough on how to host this application on a subdomain of your Cloudflare domain (e.g., `pomo.yourdomain.com`) connected to a GitHub repository with D1-backed task sync, see:
+- `TASKS_DB`: primary D1 sync database
+- `TASKS_KV`: temporary read-only migration source for rooms created by older releases
+- `migrations/`: D1 schema history
 
-👉 **[CLOUDFLARE_WALKTHROUGH.md](./CLOUDFLARE_WALKTHROUGH.md)**
+Cloudflare resource identifiers in `wrangler.toml` are identifiers, not credentials. Cloudflare API credentials and pairing links must never be committed.
 
----
+## Security
 
-## 📄 License
-Apache-2.0
+Please report vulnerabilities privately. See [SECURITY.md](./SECURITY.md). Do not include a pairing credential or private task data in a report.
+
+## License
+
+Licensed under the [Apache License 2.0](./LICENSE).

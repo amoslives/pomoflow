@@ -2,58 +2,66 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   formatDateKey,
-  recordPomodoroCompletion,
+  recordFocusSession,
   getPast7DaysData,
   calculateWeeklySummary,
+  migrateLegacyStats,
+  normalizeFocusStats,
 } from './stats.ts';
 
-test('formatDateKey formats date to YYYY-MM-DD', () => {
-  const d = new Date(2026, 9, 15); // Month is 0-indexed: 9 = October
-  assert.equal(formatDateKey(d), '2026-10-15');
+test('formatDateKey formats date in local time', () => {
+  assert.equal(formatDateKey(new Date(2026, 9, 15)), '2026-10-15');
 });
 
-test('recordPomodoroCompletion increments count for day', () => {
-  const d = new Date(2026, 9, 15);
-  const initial = {};
-  const updated = recordPomodoroCompletion(initial, d);
-  assert.equal(updated['2026-10-15'], 1);
-
-  const second = recordPomodoroCompletion(updated, d);
-  assert.equal(second['2026-10-15'], 2);
+test('recordFocusSession records each completed timer with its actual duration', () => {
+  const date = new Date(2026, 9, 15);
+  const first = recordFocusSession({}, 30, date);
+  const second = recordFocusSession(first, 45, date);
+  assert.deepEqual(second['2026-10-15'], { sessions: 2, minutes: 75 });
 });
 
-test('getPast7DaysData returns exactly 7 days of data', () => {
-  const d = new Date(2026, 9, 15);
-  const stats = {
-    '2026-10-15': 4,
-    '2026-10-14': 2,
-  };
-  const data = getPast7DaysData(stats, 25, d);
+test('getPast7DaysData returns actual recorded minutes and sessions', () => {
+  const data = getPast7DaysData({
+    '2026-10-15': { sessions: 2, minutes: 55 },
+    '2026-10-14': { sessions: 1, minutes: 40 },
+  }, new Date(2026, 9, 15));
   assert.equal(data.length, 7);
-  // Last item is today
-  assert.equal(data[6].date, '2026-10-15');
-  assert.equal(data[6].count, 4);
-  assert.equal(data[6].minutes, 100);
-  // Previous day
-  assert.equal(data[5].date, '2026-10-14');
-  assert.equal(data[5].count, 2);
-  assert.equal(data[5].minutes, 50);
+  assert.deepEqual(data[6], { day: 'Thu', date: '2026-10-15', sessions: 2, minutes: 55 });
+  assert.equal(data[5].minutes, 40);
 });
 
-test('calculateWeeklySummary calculates correct totals and best day', () => {
-  const mockData = [
-    { day: 'Sun', date: '2026-10-11', count: 2, minutes: 50 },
-    { day: 'Mon', date: '2026-10-12', count: 4, minutes: 100 },
-    { day: 'Tue', date: '2026-10-13', count: 6, minutes: 150 }, // Best day
-    { day: 'Wed', date: '2026-10-14', count: 1, minutes: 25 },
-    { day: 'Thu', date: '2026-10-15', count: 3, minutes: 75 },
-    { day: 'Fri', date: '2026-10-16', count: 0, minutes: 0 },
-    { day: 'Sat', date: '2026-10-17', count: 0, minutes: 0 },
-  ];
+test('calculateWeeklySummary uses minutes for averages and peak day', () => {
+  const summary = calculateWeeklySummary([
+    { day: 'Sun', date: '2026-10-11', sessions: 2, minutes: 50 },
+    { day: 'Mon', date: '2026-10-12', sessions: 4, minutes: 80 },
+    { day: 'Tue', date: '2026-10-13', sessions: 1, minutes: 90 },
+    ...['Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => ({ day, date: `2026-10-${14 + i}`, sessions: 0, minutes: 0 })),
+  ]);
+  assert.deepEqual(summary, {
+    totalSessions: 7,
+    totalMinutes: 220,
+    dailyAverageMinutes: 31,
+    activeDays: 3,
+    bestDay: 'Tue',
+    bestDayMinutes: 90,
+  });
+});
 
-  const summary = calculateWeeklySummary(mockData);
-  assert.equal(summary.totalPomodoros, 16);
-  assert.equal(summary.totalMinutes, 400);
-  assert.equal(summary.dailyAverage, 2.3);
-  assert.equal(summary.bestDay, 'Tue (6)');
+test('migrateLegacyStats discards generated demo data', () => {
+  const legacy = Object.fromEntries([3, 5, 4, 6, 2, 5, 4].map((count, i) => [`2026-10-${10 + i}`, count]));
+  assert.deepEqual(migrateLegacyStats(legacy, 25), {});
+});
+
+test('migrateLegacyStats preserves real counts using the saved duration', () => {
+  assert.deepEqual(migrateLegacyStats({ '2026-10-15': 2 }, 30), {
+    '2026-10-15': { sessions: 2, minutes: 60 },
+  });
+});
+
+test('normalizeFocusStats drops malformed records', () => {
+  assert.deepEqual(normalizeFocusStats({
+    '2026-10-15': { sessions: 2, minutes: 60 },
+    bad: { sessions: 1, minutes: 25 },
+    '2026-10-16': { sessions: 'many', minutes: 25 },
+  }), { '2026-10-15': { sessions: 2, minutes: 60 } });
 });

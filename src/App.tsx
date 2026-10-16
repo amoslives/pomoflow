@@ -3,17 +3,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { Header } from './components/Header';
 import { TimerCircle } from './components/TimerCircle';
 import { TaskList } from './components/TaskList';
 import { AudioPlayer } from './components/AudioPlayer';
 import { SyncModal } from './components/SyncModal';
-import { WeeklyStats } from './components/WeeklyStats';
 import { Task, createTask, toggleTask, updateTaskTitle, deleteTask, normalizeTasks } from './utils/tasks';
 import { mergeTasks, isValidSyncKey, normalizeSyncKey } from './utils/sync';
-import { recordPomodoroCompletion, getSampleWeeklyStats } from './utils/stats';
+import { type FocusStats, migrateLegacyStats, normalizeFocusStats, recordFocusSession } from './utils/stats';
+import { parseStoredInteger, parseStoredJson } from './utils/storage';
 import { playWorkCompleteChime, playBreakCompleteChime, playClickSound } from './utils/audio';
+
+const WeeklyStats = lazy(() => import('./components/WeeklyStats').then((module) => ({ default: module.WeeklyStats })));
 
 export default function App() {
   // Navigation tab state: 'timer' or 'stats'
@@ -42,13 +44,11 @@ export default function App() {
 
   // Durations in minutes
   const [workMinutes, setWorkMinutes] = useState<number>(() => {
-    const saved = localStorage.getItem('pomodoro_work_duration');
-    return saved ? Math.max(1, parseInt(saved, 10)) : 25;
+    return parseStoredInteger(localStorage.getItem('pomodoro_work_duration'), 25, 1, 90);
   });
 
   const [breakMinutes, setBreakMinutes] = useState<number>(() => {
-    const saved = localStorage.getItem('pomodoro_break_duration');
-    return saved ? Math.max(1, parseInt(saved, 10)) : 5;
+    return parseStoredInteger(localStorage.getItem('pomodoro_break_duration'), 5, 1, 45);
   });
 
   // Timer state
@@ -58,28 +58,22 @@ export default function App() {
 
   // Completed pomodoros count
   const [completedSessions, setCompletedSessions] = useState<number>(() => {
-    const saved = localStorage.getItem('pomodoro_completed_sessions');
-    return saved ? parseInt(saved, 10) : 0;
+    return parseStoredInteger(localStorage.getItem('pomodoro_completed_sessions'), 0, 0, Number.MAX_SAFE_INTEGER);
   });
 
-  // Daily productivity stats (date string -> count)
-  const [dailyStats, setDailyStats] = useState<Record<string, number>>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('pomodoro_daily_stats');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch {}
-      }
-      return getSampleWeeklyStats();
-    }
-    return {};
+  const [focusStats, setFocusStats] = useState<FocusStats>(() => {
+    const current = parseStoredJson(localStorage.getItem('pomodoro_focus_stats_v2'));
+    if (current) return normalizeFocusStats(current);
+    return migrateLegacyStats(
+      parseStoredJson(localStorage.getItem('pomodoro_daily_stats')),
+      workMinutes
+    );
   });
 
-  // Save daily stats to local storage
   useEffect(() => {
-    localStorage.setItem('pomodoro_daily_stats', JSON.stringify(dailyStats));
-  }, [dailyStats]);
+    localStorage.setItem('pomodoro_focus_stats_v2', JSON.stringify(focusStats));
+    localStorage.removeItem('pomodoro_daily_stats');
+  }, [focusStats]);
 
   // Cloudflare Sync state
   const [syncKey, setSyncKey] = useState<string>(() => {
@@ -117,11 +111,7 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>(() => {
     const saved = localStorage.getItem('pomodoro_tasks');
     if (saved) {
-      try {
-        return normalizeTasks(JSON.parse(saved));
-      } catch {
-        return [];
-      }
+      return normalizeTasks(parseStoredJson(saved));
     }
     return [];
   });
@@ -294,7 +284,7 @@ export default function App() {
             if (mode === 'work') {
               playWorkCompleteChime();
               setCompletedSessions((c) => c + 1);
-              setDailyStats((s) => recordPomodoroCompletion(s));
+              setFocusStats((stats) => recordFocusSession(stats, workMinutes));
               setMode('break');
               if ('Notification' in window && Notification.permission === 'granted') {
                 new Notification('Pomodoro Complete!', {
@@ -451,12 +441,13 @@ export default function App() {
         {/* Tab 2: Weekly Focus Analytics & Productivity Bar Chart */}
         {activeTab === 'stats' && (
           <div className="my-2">
-            <WeeklyStats
-              stats={dailyStats}
-              workMinutes={workMinutes}
-              isDark={isDark}
-              onUpdateStats={setDailyStats}
-            />
+            <Suspense fallback={<div className="min-h-80 flex items-center justify-center font-pixel text-xl">Loading stats...</div>}>
+              <WeeklyStats
+                stats={focusStats}
+                isDark={isDark}
+                onGoToTimer={() => setActiveTab('timer')}
+              />
+            </Suspense>
           </div>
         )}
 

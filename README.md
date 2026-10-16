@@ -28,12 +28,12 @@ A retro pixel-style Pomodoro productivity timer with customizable intervals, tas
   - **Queue / Playlist Manager**: Expand the drawer to inspect loaded tracks, see active track indicator (`▶`), jump directly to tracks, or remove items.
 - **Weekly Focus Analytics**:
   - Separate **[Stats]** tab powered by **Recharts**.
-  - Bar chart showing daily completed Pomodoros across the past 7 days.
-  - Metric summary cards: Total Completed Sessions, Focus Time in Hours, Daily Average, and Peak Day.
-  - Automatic session logging upon Pomodoro work completion.
+  - Bar chart showing actual focus minutes across the past 7 days.
+  - Metric summary cards: completed sessions, focus time, daily average, and peak day.
+  - Completing a work timer automatically records its configured duration; resets and abandoned timers do not count.
 - **Cloudflare Cross-Device Sync**:
-  - Generate or enter a personal sync passphrase (e.g. `focus-2026`).
-  - Shareable pairing link (`https://yourdomain.com/?sync=YOUR_KEY`) to instantly pair phones, laptops, and workstations.
+  - Generate a high-entropy pairing credential or connect an existing legacy key.
+  - Shareable fragment link (`https://yourdomain.com/#sync=YOUR_KEY`) pairs another device without sending the credential in the initial HTTP request.
   - Revision-checked writes and deletion tombstones prevent stale devices from silently overwriting task changes.
 
 ---

@@ -39,6 +39,9 @@ function saveStore(): boolean {
 
 const MAX_TASKS = 500;
 const MAX_PAYLOAD_BYTES = 256 * 1024;
+const RATE_LIMIT_REQUESTS = 120;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const rateLimitBuckets = new Map<string, { count: number; resetsAt: number }>();
 
 function validateTasks(value: unknown): Task[] | null {
   if (!Array.isArray(value) || value.length > MAX_TASKS) return null;
@@ -80,6 +83,21 @@ function setApiHeaders(req: express.Request, res: express.Response) {
   }
 }
 
+function rejectIfRateLimited(req: express.Request, res: express.Response): boolean {
+  const now = Date.now();
+  const client = req.get('CF-Connecting-IP') || req.ip || 'local';
+  const current = rateLimitBuckets.get(client);
+  const bucket = !current || current.resetsAt <= now
+    ? { count: 1, resetsAt: now + RATE_LIMIT_WINDOW_MS }
+    : { count: current.count + 1, resetsAt: current.resetsAt };
+  rateLimitBuckets.set(client, bucket);
+  if (bucket.count <= RATE_LIMIT_REQUESTS) return false;
+
+  res.set('Retry-After', String(Math.max(1, Math.ceil((bucket.resetsAt - now) / 1000))));
+  res.status(429).json({ error: 'Too many requests' });
+  return true;
+}
+
 // API Routes
 app.options('/api/tasks', (req, res) => {
   setApiHeaders(req, res);
@@ -89,6 +107,7 @@ app.options('/api/tasks', (req, res) => {
 
 app.get('/api/tasks', (req, res) => {
   setApiHeaders(req, res);
+  if (rejectIfRateLimited(req, res)) return;
   const requestedKey = (req.query.key as string || '').trim();
   const key = getCredential(req, requestedKey);
   if (!key || !isValidSyncKey(key)) {
@@ -107,6 +126,7 @@ app.get('/api/tasks', (req, res) => {
 
 app.post('/api/tasks', (req, res) => {
   setApiHeaders(req, res);
+  if (rejectIfRateLimited(req, res)) return;
   if (!isAllowedOrigin(req)) return res.status(403).json({ error: 'Cross-origin requests are not allowed' });
 
   const { key: requestedKey, tasks: rawTasks, baseRevision } = req.body || {};
@@ -158,6 +178,7 @@ app.post('/api/tasks', (req, res) => {
 
 app.delete('/api/tasks', (req, res) => {
   setApiHeaders(req, res);
+  if (rejectIfRateLimited(req, res)) return;
   if (!isAllowedOrigin(req)) return res.status(403).json({ error: 'Cross-origin requests are not allowed' });
 
   const credential = getCredential(req);

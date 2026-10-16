@@ -7,14 +7,48 @@
   Two inks only. Everything grey is a dither of the two, the way a 1984 screen did it.
 */
 
+/*
+  Local stand-ins for the web fonts, shown only until Pixelify Sans and VT323 arrive.
+  size-adjust matches mean advance width (measured on the UI strings: Pixelify Sans is
+  108.6% of Arial at 400 and 103.3% at 700; VT323 is 66.7% of Courier New). The ascent and
+  descent overrides are the web font's metrics divided by size-adjust. Together they keep
+  line breaks and heights identical across the swap, so nothing shifts.
+*/
+@font-face {
+  font-family: 'Pixelify Fallback';
+  src: local('Arial'), local('ArialMT'), local('Helvetica');
+  font-weight: 400;
+  size-adjust: 108.6%;
+  ascent-override: 84.7%;
+  descent-override: 25.8%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'Pixelify Fallback';
+  src: local('Arial Bold'), local('Arial-BoldMT'), local('Helvetica Bold');
+  font-weight: 700;
+  size-adjust: 103.3%;
+  ascent-override: 89.1%;
+  descent-override: 27.1%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'VT323 Fallback';
+  src: local('Courier New'), local('CourierNewPSMT'), local('Courier');
+  size-adjust: 66.7%;
+  ascent-override: 120%;
+  descent-override: 30%;
+  line-gap-override: 0%;
+}
+
 :root {
   --ink: #000000;
   --paper: #ffffff;
   --dim: #7a7a7a;
   --desk-a: #000000;
   --desk-b: #ffffff;
-  --font-ui: 'Pixelify Sans', 'VT323', monospace;
-  --font-data: 'VT323', 'Courier New', monospace;
+  --font-ui: 'Pixelify Sans', 'Pixelify Fallback', 'VT323', monospace;
+  --font-data: 'VT323', 'VT323 Fallback', 'Courier New', monospace;
   --dither: repeating-conic-gradient(var(--ink) 0 25%, var(--paper) 0 50%) 0 0 / 4px 4px;
   --dither-fine: repeating-conic-gradient(var(--ink) 0 25%, var(--paper) 0 50%) 0 0 / 2px 2px;
   --screen: color-mix(in srgb, var(--paper) 72%, transparent);
@@ -80,7 +114,7 @@ body {
   align-items: center;
   gap: 6px;
 }
-.menubar-item[aria-selected="true"], .menubar-item:hover, .menubar-item[aria-pressed="true"] {
+.menubar-item[aria-current="page"], .menubar-item:hover, .menubar-item[aria-pressed="true"] {
   background: var(--ink);
   color: var(--paper);
 }

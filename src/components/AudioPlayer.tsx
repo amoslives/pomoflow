@@ -793,6 +793,7 @@ export function AudioPlayer() {
             <div className="groupbox-label">Load from YouTube</div>
             <input
               type="text"
+              name="source-url"
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               placeholder="Paste YouTube video URL, video ID or playlist URL"
@@ -802,6 +803,7 @@ export function AudioPlayer() {
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <input
                 type="text"
+                name="source-label"
                 value={inputTitle}
                 onChange={(e) => setInputTitle(e.target.value)}
                 placeholder="Label (optional)"
@@ -961,6 +963,7 @@ export function AudioPlayer() {
           <span className="font-data text-lg w-12 text-right">{isLive ? 'LIVE' : formatTime(displayedTime)}</span>
           <input
             type="range"
+            name="seek"
             min="0"
             max={duration || 100}
             step="1"
@@ -1038,6 +1041,7 @@ export function AudioPlayer() {
             </button>
             <input
               type="range"
+              name="volume"
               min="0"
               max="100"
               value={isMuted ? 0 : volume}

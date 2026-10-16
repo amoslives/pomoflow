@@ -50,9 +50,9 @@ export function WeeklyStats({ stats, isDark, onGoToTimer }: WeeklyStatsProps) {
 
   return (
     <section className="w-full flex flex-col select-none">
-      <div className="flex items-baseline justify-between gap-3 mb-3">
-        <h2 className="text-2xl font-bold">Last 7 days</h2>
-        <p className="dim text-base text-right">Only work timers that reached 00:00 count.</p>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-3">
+        <h2 className="text-2xl font-bold whitespace-nowrap">Last 7 days</h2>
+        <p className="dim text-base text-left sm:text-right">Only work timers that reached 00:00 count.</p>
       </div>
 
       {/* Get Info style summary */}

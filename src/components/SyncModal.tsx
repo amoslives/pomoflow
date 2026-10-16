@@ -224,6 +224,7 @@ export function SyncModal({
             <div className="groupbox-label">Pair another device</div>
             <input
               type="text"
+              name="pairing-link"
               readOnly
               value={shareableUrl}
               aria-label="Pairing link"

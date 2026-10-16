@@ -42,7 +42,7 @@ export function Header({ isDark, themeMode, onCycleTheme, activeTab, onChangeTab
           type="button"
           className="menubar-item"
           onClick={() => onChangeTab('timer')}
-          aria-selected={activeTab === 'timer'}
+          aria-current={activeTab === 'timer' ? 'page' : undefined}
         >
           Timer
         </button>
@@ -50,7 +50,7 @@ export function Header({ isDark, themeMode, onCycleTheme, activeTab, onChangeTab
           type="button"
           className="menubar-item"
           onClick={() => onChangeTab('stats')}
-          aria-selected={activeTab === 'stats'}
+          aria-current={activeTab === 'stats' ? 'page' : undefined}
         >
           Stats
         </button>

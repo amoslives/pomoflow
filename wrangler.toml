@@ -1,0 +1,11 @@
+# Cloudflare Pages / Workers Configuration for Pomodoro Focus
+name = "pomodoro-focus"
+compatibility_date = "2024-09-23"
+pages_build_output_dir = "dist"
+
+# Bind Cloudflare KV namespace for cross-computer task sync
+# Create a KV namespace with: npx wrangler kv:namespace create TASKS_KV
+# Then paste the id below:
+[[kv_namespaces]]
+binding = "TASKS_KV"
+id = "YOUR_CLOUDFLARE_KV_NAMESPACE_ID"

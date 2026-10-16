@@ -19,6 +19,7 @@ import {
   Radio,
 } from 'lucide-react';
 import { formatTime } from '../utils/timer';
+import { parseStoredJson } from '../utils/storage';
 import { ambientSound } from '../utils/audio';
 import {
   parseYouTubeSource,
@@ -57,6 +58,19 @@ interface NativePlaylistTrack {
 
 const PLAYLIST_METADATA_BATCH_SIZE = 25;
 
+function normalizeQueue(value: unknown): TrackItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is TrackItem => {
+    if (!item || typeof item !== 'object') return false;
+    const track = item as Partial<TrackItem>;
+    if (typeof track.id !== 'string' || typeof track.title !== 'string') return false;
+    if (!['youtube-video', 'youtube-playlist', 'ambient'].includes(track.sourceType || '')) return false;
+    if (track.sourceType === 'youtube-video') return typeof track.youtubeId === 'string';
+    if (track.sourceType === 'youtube-playlist') return typeof track.playlistId === 'string';
+    return ['rain', 'drone', 'whitenoise'].includes(track.ambientMode || '');
+  });
+}
+
 export function AudioPlayer() {
   const [showSettings, setShowSettings] = useState(false);
   const [showPlaylist, setShowPlaylist] = useState(false);
@@ -65,11 +79,7 @@ export function AudioPlayer() {
   const [queue, setQueue] = useState<TrackItem[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('pomodoro_music_queue');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch {}
-      }
+      if (saved) return normalizeQueue(parseStoredJson(saved));
     }
     return [];
   });

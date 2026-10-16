@@ -111,12 +111,12 @@ export function getNextTrackIndex(
     const available = unplayedIndices.filter((idx) => idx !== currentIndex && idx >= 0 && idx < totalTracks);
     if (available.length > 0) {
       const randomIndex = Math.floor(Math.random() * available.length);
-      return available[randomIndex];
+      return available[randomIndex] ?? -1;
     }
     // All played: if repeat mode is 'all', pick random different track
     if (repeatMode === 'all') {
       const others = Array.from({ length: totalTracks }, (_, i) => i).filter((i) => i !== currentIndex);
-      return others[Math.floor(Math.random() * others.length)];
+      return others[Math.floor(Math.random() * others.length)] ?? -1;
     }
     // No repeat and all tracks played: stop.
     return -1;
@@ -158,7 +158,12 @@ export function shuffleArray<T>(items: T[]): T[] {
   const result = [...items];
   for (let i = result.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [result[i], result[j]] = [result[j], result[i]];
+    const current = result[i];
+    const swap = result[j];
+    if (current !== undefined && swap !== undefined) {
+      result[i] = swap;
+      result[j] = current;
+    }
   }
   return result;
 }

@@ -27,7 +27,7 @@ test('getPast7DaysData returns actual recorded minutes and sessions', () => {
   }, new Date(2026, 9, 15));
   assert.equal(data.length, 7);
   assert.deepEqual(data[6], { day: 'Thu', date: '2026-10-15', sessions: 2, minutes: 55 });
-  assert.equal(data[5].minutes, 40);
+  assert.equal(data[5]!.minutes, 40);
 });
 
 test('calculateWeeklySummary uses minutes for averages and peak day', () => {

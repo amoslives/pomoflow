@@ -45,58 +45,6 @@ export interface TrackItem {
   author?: string;
 }
 
-const PRESET_COLLECTIONS: TrackItem[] = [
-  {
-    id: 'preset-lofi-girl',
-    title: 'Lofi Girl - Relaxing Beats to Study/Chill to',
-    sourceType: 'youtube-video',
-    youtubeId: 'jfKfPfyJRdk',
-    author: 'Lofi Girl',
-  },
-  {
-    id: 'preset-synthwave',
-    title: 'Synthwave Radio - Chill Retro Beats',
-    sourceType: 'youtube-video',
-    youtubeId: '4xDzrJKXOOY',
-    author: 'Lofi Girl / Synthwave',
-  },
-  {
-    id: 'preset-lofi-playlist',
-    title: 'Top Lofi Hip Hop Study Playlist',
-    sourceType: 'youtube-playlist',
-    playlistId: 'PLofht4PTcKYnaH8w5zyJoi66651ZGCduU',
-    author: 'Curated Focus Playlist',
-  },
-  {
-    id: 'preset-classical-focus',
-    title: 'Classical Music for Brain Power & Studying',
-    sourceType: 'youtube-video',
-    youtubeId: 'WPni755-Krg',
-    author: 'HALIDONMUSIC',
-  },
-  {
-    id: 'preset-rain-ambient',
-    title: 'Rain on Window (Synthesized Soundscape)',
-    sourceType: 'ambient',
-    ambientMode: 'rain',
-    author: 'Built-in Synth',
-  },
-  {
-    id: 'preset-deep-drone',
-    title: 'Deep Focus Drone (432Hz Ambient Flow)',
-    sourceType: 'ambient',
-    ambientMode: 'drone',
-    author: 'Built-in Synth',
-  },
-  {
-    id: 'preset-white-noise',
-    title: 'Pure Gentle White Noise',
-    sourceType: 'ambient',
-    ambientMode: 'whitenoise',
-    author: 'Built-in Synth',
-  },
-];
-
 export function AudioPlayer() {
   const [showSettings, setShowSettings] = useState(false);
   const [showPlaylist, setShowPlaylist] = useState(false);
@@ -111,7 +59,7 @@ export function AudioPlayer() {
         } catch {}
       }
     }
-    return PRESET_COLLECTIONS;
+    return [];
   });
 
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number>(0);
@@ -218,10 +166,11 @@ export function AudioPlayer() {
   }, [queue, currentTrackIndex, repeatMode, currentTrack]);
 
   // Play track at specified index
-  const playTrackAtIndex = (index: number) => {
-    if (index < 0 || index >= queue.length) return;
+  const playTrackAtIndex = (index: number, queueOverride?: TrackItem[]) => {
+    const effectiveQueue = queueOverride ?? queue;
+    if (index < 0 || index >= effectiveQueue.length) return;
     setCurrentTrackIndex(index);
-    const track = queue[index];
+    const track = effectiveQueue[index];
     setCurrentTime(0);
     setDuration(0);
 
@@ -461,7 +410,7 @@ export function AudioPlayer() {
     setUrlInput('');
     setInputTitle('');
     setShowSettings(false);
-    playTrackAtIndex(0);
+    playTrackAtIndex(0, [newTrack, ...queue]);
   };
 
   // Remove track from queue
@@ -527,39 +476,6 @@ export function AudioPlayer() {
               </button>
             </div>
           </form>
-
-          {/* Preset focus stations */}
-          <div className="pt-2 border-t border-neutral-300 dark:border-neutral-700">
-            <span className="text-sm uppercase text-neutral-500 dark:text-neutral-400 block mb-1.5 font-bold">
-              Curated Focus Stations & Playlists:
-            </span>
-            <div className="flex flex-wrap gap-1.5">
-              {PRESET_COLLECTIONS.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  onClick={() => {
-                    // Check if already in queue
-                    const existingIdx = queue.findIndex((q) => q.id === preset.id);
-                    if (existingIdx !== -1) {
-                      playTrackAtIndex(existingIdx);
-                    } else {
-                      setQueue((prev) => [preset, ...prev]);
-                      playTrackAtIndex(0);
-                    }
-                    setShowSettings(false);
-                  }}
-                  className={`px-2 py-1 text-xs sm:text-sm border cursor-pointer uppercase transition-colors ${
-                    currentTrack?.id === preset.id
-                      ? 'bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900 border-neutral-800 dark:border-neutral-200 font-bold'
-                      : 'bg-white/60 dark:bg-neutral-900/60 text-neutral-800 dark:text-neutral-200 border-neutral-400 dark:border-neutral-600 hover:bg-neutral-300 dark:hover:bg-neutral-700'
-                  }`}
-                >
-                  {preset.title.split(' - ')[0]}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       )}
 
@@ -572,13 +488,6 @@ export function AudioPlayer() {
               <span>Current Playlist & Queue ({queue.length})</span>
             </h3>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setQueue(PRESET_COLLECTIONS)}
-                className="text-xs uppercase text-neutral-600 dark:text-neutral-400 hover:underline cursor-pointer"
-              >
-                Reset Presets
-              </button>
               <button
                 type="button"
                 onClick={() => setShowPlaylist(false)}

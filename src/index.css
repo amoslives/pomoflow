@@ -174,14 +174,3 @@ input[type="range"].retro-progress-slider::-moz-range-thumb {
   border-radius: 0;
   background: #f3f4f6;
 }
-
-@keyframes marquee {
-  0% { transform: translateX(0%); }
-  100% { transform: translateX(-50%); }
-}
-
-.animate-marquee {
-  display: inline-block;
-  white-space: nowrap;
-  animation: marquee 16s linear infinite;
-}

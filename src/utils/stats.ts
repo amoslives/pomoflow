@@ -89,7 +89,7 @@ export function getPast7DaysData(
     d.setDate(d.getDate() - i);
     const date = formatDateKey(d);
     const entry = stats[date] || { sessions: 0, minutes: 0 };
-    result.push({ day: dayNames[d.getDay()], date, ...entry });
+    result.push({ day: dayNames[d.getDay()] ?? '', date, ...entry });
   }
   return result;
 }

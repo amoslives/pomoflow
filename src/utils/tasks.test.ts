@@ -16,21 +16,21 @@ test('toggleTask toggles completion status', () => {
   const list = [t1, t2];
 
   const toggled = toggleTask(list, t1.id);
-  assert.equal(toggled[0].completed, true);
-  assert.equal(toggled[1].completed, false);
+  assert.equal(toggled[0]!.completed, true);
+  assert.equal(toggled[1]!.completed, false);
 
   const toggledBack = toggleTask(toggled, t1.id);
-  assert.equal(toggledBack[0].completed, false);
+  assert.equal(toggledBack[0]!.completed, false);
 });
 
 test('updateTaskTitle updates title correctly', () => {
   const t1 = createTask('Old Title');
   const updated = updateTaskTitle([t1], t1.id, 'New Title');
-  assert.equal(updated[0].title, 'New Title');
+  assert.equal(updated[0]!.title, 'New Title');
 
   // Ignored if blank
   const notUpdated = updateTaskTitle([t1], t1.id, '   ');
-  assert.equal(notUpdated[0].title, 'Old Title');
+  assert.equal(notUpdated[0]!.title, 'Old Title');
 });
 
 test('deleteTask creates a tombstone hidden from visible partitions', () => {
@@ -38,8 +38,8 @@ test('deleteTask creates a tombstone hidden from visible partitions', () => {
   const t2 = createTask('T2');
   const remaining = deleteTask([t1, t2], t1.id, 500);
   assert.equal(remaining.length, 2);
-  assert.equal(remaining[0].deletedAt, 500);
-  assert.equal(remaining[0].updatedAt, 500);
+  assert.equal(remaining[0]!.deletedAt, 500);
+  assert.equal(remaining[0]!.updatedAt, 500);
   assert.deepEqual(partitionTasks(remaining), { pending: [t2], completed: [] });
 });
 
@@ -51,7 +51,7 @@ test('partitionTasks splits pending and completed', () => {
   const { pending, completed } = partitionTasks([t1, t2, t3]);
   assert.equal(pending.length, 2);
   assert.equal(completed.length, 1);
-  assert.equal(completed[0].id, t2.id);
+  assert.equal(completed[0]!.id, t2.id);
 });
 
 test('normalizeTasks migrates legacy tasks and drops malformed records', () => {

@@ -1,13 +1,16 @@
-import { Sun, Moon, Clock, BarChart3 } from 'lucide-react';
+import { Sun, Moon, Monitor, Clock, BarChart3 } from 'lucide-react';
+import type { ThemeMode } from '../utils/theme';
 
 interface HeaderProps {
   isDark: boolean;
-  onToggleTheme: () => void;
+  themeMode: ThemeMode;
+  onCycleTheme: () => void;
   activeTab: 'timer' | 'stats';
   onChangeTab: (tab: 'timer' | 'stats') => void;
 }
 
-export function Header({ isDark, onToggleTheme, activeTab, onChangeTab }: HeaderProps) {
+export function Header({ isDark, themeMode, onCycleTheme, activeTab, onChangeTab }: HeaderProps) {
+  const nextMode = themeMode === 'system' ? 'light' : themeMode === 'light' ? 'dark' : 'system';
   return (
     <header className="w-full flex flex-col sm:flex-row items-center justify-between gap-3 mb-4 sm:mb-6 pt-1">
       <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-widest text-neutral-900 dark:text-neutral-100 font-pixel uppercase select-none">
@@ -49,11 +52,14 @@ export function Header({ isDark, onToggleTheme, activeTab, onChangeTab }: Header
         {/* Theme button */}
         <button
           type="button"
-          onClick={onToggleTheme}
-          aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          onClick={onCycleTheme}
+          aria-label={`Theme: ${themeMode}. Switch to ${nextMode} mode`}
+          title={`Theme: ${themeMode}`}
           className="p-1.5 sm:p-2 rounded-none border border-neutral-400 dark:border-neutral-600 bg-neutral-200 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-300 dark:hover:bg-neutral-700 active:translate-y-0.5 transition-colors cursor-pointer shadow-[2px_2px_0px_rgba(0,0,0,0.2)] dark:shadow-[2px_2px_0px_rgba(255,255,255,0.1)]"
         >
-          {isDark ? (
+          {themeMode === 'system' ? (
+            <Monitor className="w-4 h-4 sm:w-5 sm:h-5" />
+          ) : isDark ? (
             <Moon className="w-4 h-4 sm:w-5 sm:h-5" />
           ) : (
             <Sun className="w-4 h-4 sm:w-5 sm:h-5" />

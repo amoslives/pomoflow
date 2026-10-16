@@ -14,6 +14,7 @@ import { mergeTasks, isValidSyncKey, normalizeSyncKey } from './utils/sync';
 import { type FocusStats, migrateLegacyStats, normalizeFocusStats, recordFocusSession } from './utils/stats';
 import { parseStoredInteger, parseStoredJson } from './utils/storage';
 import { playWorkCompleteChime, playBreakCompleteChime, playClickSound } from './utils/audio';
+import { nextThemeMode, normalizeThemeMode, type ThemeMode } from './utils/theme';
 
 const WeeklyStats = lazy(() => import('./components/WeeklyStats').then((module) => ({ default: module.WeeklyStats })));
 
@@ -21,26 +22,35 @@ export default function App() {
   // Navigation tab state: 'timer' or 'stats'
   const [activeTab, setActiveTab] = useState<'timer' | 'stats'>('timer');
 
-  // Theme state
-  const [isDark, setIsDark] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('pomodoro_theme');
-      if (saved) return saved === 'dark';
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
-    }
-    return true;
-  });
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() =>
+    normalizeThemeMode(localStorage.getItem('pomodoro_theme'))
+  );
+  const [systemIsDark, setSystemIsDark] = useState(() =>
+    window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
+  const isDark = themeMode === 'system' ? systemIsDark : themeMode === 'dark';
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const updateSystemTheme = (event: MediaQueryListEvent | MediaQueryList) => setSystemIsDark(event.matches);
+    updateSystemTheme(media);
+    media.addEventListener('change', updateSystemTheme);
+    return () => media.removeEventListener('change', updateSystemTheme);
+  }, []);
+
+  const cycleTheme = useCallback(() => {
+    setThemeMode((current) => nextThemeMode(current));
+  }, []);
 
   // Sync html class for dark mode
   useEffect(() => {
     if (isDark) {
       document.documentElement.classList.add('dark');
-      localStorage.setItem('pomodoro_theme', 'dark');
     } else {
       document.documentElement.classList.remove('dark');
-      localStorage.setItem('pomodoro_theme', 'light');
     }
-  }, [isDark]);
+    localStorage.setItem('pomodoro_theme', themeMode);
+  }, [isDark, themeMode]);
 
   // Durations in minutes
   const [workMinutes, setWorkMinutes] = useState<number>(() => {
@@ -391,13 +401,13 @@ export default function App() {
         resetTimer();
       } else if (e.key === 'd' || e.key === 'D') {
         e.preventDefault();
-        setIsDark((prev) => !prev);
+        cycleTheme();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isRunning, mode, workMinutes, breakMinutes]);
+  }, [isRunning, mode, workMinutes, breakMinutes, cycleTheme]);
 
   // Task actions with automatic Cloudflare sync
   const handleAddTask = (title: string) => {
@@ -444,9 +454,10 @@ export default function App() {
       {/* Centered Main Box matching pomoflow */}
       <main className="w-full max-w-3xl bg-[#cfcfcf] dark:bg-[#222222] border-2 border-neutral-400 dark:border-neutral-700 shadow-[6px_6px_0px_rgba(0,0,0,0.25)] dark:shadow-[6px_6px_0px_rgba(0,0,0,0.7)] p-4 sm:p-6 flex flex-col">
         {/* Header with Navigation Tabs */}
-        <Header
-          isDark={isDark}
-          onToggleTheme={() => setIsDark(!isDark)}
+          <Header
+            isDark={isDark}
+            themeMode={themeMode}
+            onCycleTheme={cycleTheme}
           activeTab={activeTab}
           onChangeTab={setActiveTab}
         />

@@ -28,6 +28,29 @@ test('stats start empty without manual or demo controls', async ({ page }) => {
   await expect(page.getByText(/Log \+1|Demo Data/i)).toHaveCount(0);
 });
 
+test('system theme follows the OS and cycles through explicit modes', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.reload();
+  const themeButton = page.getByRole('button', { name: /Theme: system/i });
+  await expect(themeButton).toBeVisible();
+  await expect(page.locator('html')).toHaveClass(/dark/);
+
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(page.locator('html')).not.toHaveClass(/dark/);
+
+  await themeButton.click();
+  await expect(page.getByRole('button', { name: /Theme: light/i })).toBeVisible();
+  await expect(page.locator('html')).not.toHaveClass(/dark/);
+
+  await page.getByRole('button', { name: /Theme: light/i }).click();
+  await expect(page.getByRole('button', { name: /Theme: dark/i })).toBeVisible();
+  await expect(page.locator('html')).toHaveClass(/dark/);
+
+  await page.getByRole('button', { name: /Theme: dark/i }).click();
+  await expect(page.getByRole('button', { name: /Theme: system/i })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('pomodoro_theme'))).toBe('system');
+});
+
 test('pairing creates a fragment link and local QR code', async ({ page }) => {
   await page.getByRole('button', { name: /open sync settings/i }).click();
   await page.getByRole('button', { name: /generate secure key/i }).click();

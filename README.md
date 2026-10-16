@@ -33,7 +33,7 @@ Pomoflow can also be used locally without enabling sync.
 | --- | --- |
 | `Space` | Start or pause the timer |
 | `R` | Reset the current interval |
-| `D` | Toggle light or dark mode |
+| `D` | Cycle system, light, and dark mode |
 
 Shortcuts are disabled while focus is inside an input field.
 

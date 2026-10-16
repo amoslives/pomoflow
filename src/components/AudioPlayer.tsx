@@ -99,13 +99,31 @@ export function AudioPlayer() {
   const [nativePlaylistTracks, setNativePlaylistTracks] = useState<NativePlaylistTrack[]>([]);
   const [nativePlaylistIndex, setNativePlaylistIndex] = useState(-1);
   const [isPlaylistMetadataLoading, setIsPlaylistMetadataLoading] = useState(false);
+  const [isLive, setIsLive] = useState(false);
+  const [playbackError, setPlaybackError] = useState('');
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [seekPreview, setSeekPreview] = useState(0);
 
   const ytPlayerRef = useRef<any>(null);
   const timerIntervalRef = useRef<number | null>(null);
+  const pendingTrackRef = useRef<TrackItem | null>(null);
+  const handleNextTrackRef = useRef<() => void>(() => {});
+  const resumePositionRef = useRef(0);
+  const queueRef = useRef(queue);
+  const currentTrackIndexRef = useRef(currentTrackIndex);
+  const repeatModeRef = useRef(repeatMode);
+  const failedTrackIdsRef = useRef<Set<string>>(new Set());
+  const playTrackAtIndexRef = useRef<(index: number) => void>(() => {});
   const playlistMetadataCacheRef = useRef<Map<string, YouTubeVideoMetadata | null>>(new Map());
   const playlistSyncGenerationRef = useRef(0);
 
   const currentTrack: TrackItem | undefined = queue[currentTrackIndex];
+
+  useEffect(() => {
+    queueRef.current = queue;
+    currentTrackIndexRef.current = currentTrackIndex;
+    repeatModeRef.current = repeatMode;
+  }, [queue, currentTrackIndex, repeatMode]);
 
   // Save queue
   useEffect(() => {
@@ -221,6 +239,12 @@ export function AudioPlayer() {
     // If native YT playlist is playing and has multiple tracks, try native nextVideo
     if (currentTrack?.sourceType === 'youtube-playlist' && ytPlayerRef.current && typeof ytPlayerRef.current.nextVideo === 'function') {
       try {
+        const playlist = typeof ytPlayerRef.current.getPlaylist === 'function' ? ytPlayerRef.current.getPlaylist() || [] : [];
+        const playlistIndex = typeof ytPlayerRef.current.getPlaylistIndex === 'function' ? ytPlayerRef.current.getPlaylistIndex() : -1;
+        if (repeatMode === 'off' && playlist.length > 0 && playlistIndex >= playlist.length - 1) {
+          setIsPlaying(false);
+          return;
+        }
         ytPlayerRef.current.nextVideo();
         return;
       } catch {}
@@ -238,9 +262,19 @@ export function AudioPlayer() {
       unplayed
     );
 
+    if (nextIndex < 0) {
+      setIsPlaying(false);
+      return;
+    }
+
     setPlayedIndices((prev) => [...prev, nextIndex]);
+    setPlaybackError('');
     playTrackAtIndex(nextIndex);
   }, [queue, currentTrackIndex, isShuffle, repeatMode, playedIndices, currentTrack]);
+
+  useEffect(() => {
+    handleNextTrackRef.current = handleNextTrack;
+  }, [handleNextTrack]);
 
   // Play previous track
   const handlePrevTrack = useCallback(() => {
@@ -265,6 +299,10 @@ export function AudioPlayer() {
     const track = effectiveQueue[index];
     setCurrentTime(0);
     setDuration(0);
+    setSeekPreview(0);
+    setIsLive(false);
+    setPlaybackError('');
+    resumePositionRef.current = 0;
 
     playlistSyncGenerationRef.current += 1;
     setNativePlaylistTracks([]);
@@ -293,7 +331,11 @@ export function AudioPlayer() {
   };
 
   const loadYouTubeSource = (track: TrackItem) => {
-    if (!window.YT || !window.YT.Player) return;
+    if (!window.YT || !window.YT.Player) {
+      pendingTrackRef.current = track;
+      return;
+    }
+    pendingTrackRef.current = null;
 
     const onPlayerReady = (event: any) => {
       ytPlayerRef.current = event.target;
@@ -315,9 +357,13 @@ export function AudioPlayer() {
       // 1 = playing, 2 = paused, 0 = ended
       if (event.data === 1) {
         setIsPlaying(true);
+        setPlaybackError('');
+        const playingTrack = queueRef.current[currentTrackIndexRef.current];
+        if (playingTrack) failedTrackIdsRef.current.delete(playingTrack.id);
         syncNativePlaylist(event.target);
         try {
           const videoData = event.target.getVideoData();
+          setIsLive(Boolean(videoData?.isLive));
           if (videoData && videoData.title) {
             setLiveTitle(videoData.title);
           }
@@ -326,13 +372,36 @@ export function AudioPlayer() {
         setIsPlaying(false);
       } else if (event.data === 0) {
         // Track ended
-        handleNextTrack();
+        handleNextTrackRef.current();
       }
     };
 
-    const onError = () => {
-      // If video blocked or unavailable, skip to next track
-      handleNextTrack();
+    const onError = (event: any) => {
+      if (track.sourceType === 'youtube-playlist') {
+        try {
+          const playlist = event.target.getPlaylist?.() || [];
+          const index = event.target.getPlaylistIndex?.() ?? -1;
+          if (index >= 0 && index < playlist.length - 1) {
+            event.target.nextVideo();
+            return;
+          }
+        } catch {}
+      }
+
+      const failedIndex = currentTrackIndexRef.current;
+      const currentQueue = queueRef.current;
+      const failedTrack = currentQueue[failedIndex];
+      if (failedTrack) failedTrackIdsRef.current.add(failedTrack.id);
+      const candidates = currentQueue
+        .map((_, index) => index)
+        .filter((index) => !failedTrackIdsRef.current.has(currentQueue[index]?.id || ''))
+        .filter((index) => repeatModeRef.current !== 'off' || index > failedIndex);
+      if (candidates.length === 0) {
+        setIsPlaying(false);
+        setPlaybackError('This video is unavailable and there are no more playable tracks.');
+        return;
+      }
+      playTrackAtIndexRef.current(candidates[0]);
     };
 
     // If player already exists, use existing instance methods
@@ -390,6 +459,16 @@ export function AudioPlayer() {
     } catch {}
   };
 
+  useEffect(() => {
+    playTrackAtIndexRef.current = playTrackAtIndex;
+  });
+
+  useEffect(() => {
+    if (apiReady && pendingTrackRef.current) {
+      loadYouTubeSource(pendingTrackRef.current);
+    }
+  }, [apiReady]);
+
   // Sync playback time & duration
   useEffect(() => {
     if (isPlaying) {
@@ -399,11 +478,13 @@ export function AudioPlayer() {
             if (typeof ytPlayerRef.current.getCurrentTime === 'function') {
               const curr = ytPlayerRef.current.getCurrentTime() || 0;
               const dur = ytPlayerRef.current.getDuration() || 0;
-              setCurrentTime(curr);
+              resumePositionRef.current = curr;
+              if (!isSeeking) setCurrentTime(curr);
               setDuration(dur);
             }
             if (typeof ytPlayerRef.current.getVideoData === 'function') {
               const data = ytPlayerRef.current.getVideoData();
+              setIsLive(Boolean(data?.isLive));
               if (data && data.title && data.title !== liveTitle) {
                 setLiveTitle(data.title);
               }
@@ -425,7 +506,7 @@ export function AudioPlayer() {
     return () => {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
-  }, [isPlaying, currentTrack, liveTitle]);
+  }, [isPlaying, currentTrack, liveTitle, isSeeking]);
 
   // Toggle Play / Pause
   const handleTogglePlayPause = () => {
@@ -450,6 +531,16 @@ export function AudioPlayer() {
         playTrackAtIndex(currentTrackIndex);
       } else if (ytPlayerRef.current && typeof ytPlayerRef.current.playVideo === 'function') {
         try {
+          const playerState = typeof ytPlayerRef.current.getPlayerState === 'function'
+            ? ytPlayerRef.current.getPlayerState()
+            : null;
+          if (
+            resumePositionRef.current > 0
+            && (playerState === -1 || playerState === 5)
+            && typeof ytPlayerRef.current.seekTo === 'function'
+          ) {
+            ytPlayerRef.current.seekTo(resumePositionRef.current, true);
+          }
           ytPlayerRef.current.playVideo();
           setIsPlaying(true);
         } catch {
@@ -550,6 +641,21 @@ export function AudioPlayer() {
   };
 
   const displayTitle = liveTitle || currentTrack?.title || 'No track loaded';
+  const displayedTime = isSeeking ? seekPreview : currentTime;
+  const seekPercent = duration > 0 ? Math.min(100, Math.max(0, (displayedTime / duration) * 100)) : 0;
+
+  const commitSeek = (nextTime: number) => {
+    const clampedTime = Math.min(duration, Math.max(0, nextTime));
+    setCurrentTime(clampedTime);
+    setSeekPreview(clampedTime);
+    resumePositionRef.current = clampedTime;
+    setIsSeeking(false);
+    if (ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
+      try {
+        ytPlayerRef.current.seekTo(clampedTime, true);
+      } catch {}
+    }
+  };
 
   return (
     <div className="w-full mt-5 font-pixel select-none">
@@ -752,21 +858,21 @@ export function AudioPlayer() {
       )}
 
       {/* Docked Retro Player Bar */}
-      <div className="w-full flex flex-col md:flex-row items-center gap-3 p-2.5 border-2 border-neutral-400 dark:border-neutral-700 bg-neutral-200/90 dark:bg-neutral-800/90 backdrop-blur-sm text-neutral-800 dark:text-neutral-200 shadow-[3px_3px_0px_rgba(0,0,0,0.2)]">
+      <div className="w-full flex flex-wrap items-center gap-2 p-2.5 border-2 border-neutral-400 dark:border-neutral-700 bg-neutral-200/90 dark:bg-neutral-800/90 backdrop-blur-sm text-neutral-800 dark:text-neutral-200 shadow-[3px_3px_0px_rgba(0,0,0,0.2)]">
         {/* Track Title Display */}
-        <div className="w-full md:w-56 lg:w-72 overflow-hidden px-2.5 py-1 bg-white dark:bg-neutral-900 border border-neutral-400 dark:border-neutral-600 text-sm sm:text-base flex items-center h-8">
+        <div className="order-[1] flex-1 min-w-40 overflow-hidden px-2.5 py-1 bg-white dark:bg-neutral-900 border border-neutral-400 dark:border-neutral-600 text-sm sm:text-base flex items-center h-8">
           <div className="w-full truncate font-mono-tech text-neutral-800 dark:text-neutral-200">
             {displayTitle}
           </div>
         </div>
 
         {/* Current Time */}
-        <div className="px-1.5 font-mono-tech text-sm min-w-[45px] text-center">
-          {formatTime(currentTime)}
+        <div className="order-[5] px-1.5 font-mono-tech text-sm min-w-[45px] text-center">
+          {isLive ? 'LIVE' : formatTime(displayedTime)}
         </div>
 
         {/* Transport Controls */}
-        <div className="flex items-center gap-1">
+        <div className="order-[2] flex items-center gap-1">
           <button
             type="button"
             onClick={handlePrevTrack}
@@ -809,7 +915,7 @@ export function AudioPlayer() {
         </div>
 
         {/* Shuffle & Repeat Controls */}
-        <div className="flex items-center gap-1 border-x border-neutral-300 dark:border-neutral-700 px-1">
+        <div className="order-[3] flex items-center gap-1 border-x border-neutral-300 dark:border-neutral-700 px-1">
           {/* Shuffle Mode Button */}
           <button
             type="button"
@@ -841,30 +947,45 @@ export function AudioPlayer() {
           </button>
         </div>
 
+        <div className="order-[4] basis-full h-0" aria-hidden="true" />
+
         {/* Seek Progress Slider */}
-        <div className="flex-1 w-full flex items-center px-1">
+        <div className="order-[6] flex-1 min-w-40 flex items-center px-1">
           <input
             type="range"
             min="0"
             max={duration || 100}
-            value={currentTime}
+            step="1"
+            value={isLive ? 0 : displayedTime}
+            onPointerDown={() => {
+              setSeekPreview(currentTime);
+              setIsSeeking(true);
+            }}
             onChange={(e) => {
               const newTime = Number(e.target.value);
-              setCurrentTime(newTime);
-              if (currentTrack?.sourceType !== 'ambient' && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
-                try {
-                  ytPlayerRef.current.seekTo(newTime, true);
-                } catch {}
-              }
+              setSeekPreview(newTime);
+              setIsSeeking(true);
             }}
-            disabled={!currentTrack || currentTrack.sourceType === 'ambient'}
-            className="retro-volume-slider w-full disabled:opacity-40"
-            aria-label="Track progress"
+            onPointerUp={(e) => commitSeek(Number(e.currentTarget.value))}
+            onKeyUp={(e) => commitSeek(Number(e.currentTarget.value))}
+            onBlur={(e) => isSeeking && commitSeek(Number(e.currentTarget.value))}
+            disabled={!currentTrack || currentTrack.sourceType === 'ambient' || isLive || duration <= 0}
+            className="retro-progress-slider w-full disabled:opacity-40"
+            style={{ '--seek-progress': `${seekPercent}%` } as React.CSSProperties}
+            aria-label={isLive ? 'Live stream progress is not seekable' : 'Seek through current track'}
+            aria-valuetext={isLive ? 'Live' : `${formatTime(displayedTime)} of ${formatTime(duration)}`}
           />
         </div>
 
+        {/* Total Time */}
+        <div className="order-[7] px-1 font-mono-tech text-sm min-w-[45px] text-center">
+          {isLive ? 'LIVE' : formatTime(duration)}
+        </div>
+
+        <div className="order-[8] basis-full h-0" aria-hidden="true" />
+
         {/* Volume controls */}
-        <div className="flex items-center gap-1.5">
+        <div className="order-[9] ml-auto flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => setIsMuted(!isMuted)}
@@ -888,7 +1009,7 @@ export function AudioPlayer() {
         </div>
 
         {/* Playlist & Settings Drawers */}
-        <div className="flex items-center gap-1">
+        <div className="order-[10] flex items-center gap-1">
           <button
             type="button"
             onClick={() => {
@@ -924,11 +1045,12 @@ export function AudioPlayer() {
           </button>
         </div>
 
-        {/* Total Time */}
-        <div className="px-1 font-mono-tech text-sm min-w-[45px] text-center hidden sm:block">
-          {formatTime(duration)}
-        </div>
       </div>
+      {playbackError && (
+        <p role="alert" className="mt-2 text-sm font-mono-tech text-red-600 dark:text-red-400">
+          {playbackError}
+        </p>
+      )}
     </div>
   );
 }

@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTask, toggleTask, updateTaskTitle, deleteTask, partitionTasks, type Task } from './tasks.ts';
+import { createTask, toggleTask, updateTaskTitle, deleteTask, normalizeTasks, partitionTasks, type Task } from './tasks.ts';
 
 test('createTask creates valid task with title', () => {
   const task = createTask('Write documentation');
   assert.equal(task.title, 'Write documentation');
   assert.equal(task.completed, false);
   assert.ok(task.id.startsWith('task-'));
+  assert.equal(task.updatedAt, task.createdAt);
 });
 
 test('toggleTask toggles completion status', () => {
@@ -32,12 +33,14 @@ test('updateTaskTitle updates title correctly', () => {
   assert.equal(notUpdated[0].title, 'Old Title');
 });
 
-test('deleteTask removes task by id', () => {
+test('deleteTask creates a tombstone hidden from visible partitions', () => {
   const t1 = createTask('T1');
   const t2 = createTask('T2');
-  const remaining = deleteTask([t1, t2], t1.id);
-  assert.equal(remaining.length, 1);
-  assert.equal(remaining[0].id, t2.id);
+  const remaining = deleteTask([t1, t2], t1.id, 500);
+  assert.equal(remaining.length, 2);
+  assert.equal(remaining[0].deletedAt, 500);
+  assert.equal(remaining[0].updatedAt, 500);
+  assert.deepEqual(partitionTasks(remaining), { pending: [t2], completed: [] });
 });
 
 test('partitionTasks splits pending and completed', () => {
@@ -49,4 +52,19 @@ test('partitionTasks splits pending and completed', () => {
   assert.equal(pending.length, 2);
   assert.equal(completed.length, 1);
   assert.equal(completed[0].id, t2.id);
+});
+
+test('normalizeTasks migrates legacy tasks and drops malformed records', () => {
+  const normalized = normalizeTasks([
+    { id: 'legacy', title: 'Legacy task', completed: false, createdAt: 100 },
+    { id: 'bad', title: { html: true }, completed: false, createdAt: 100 },
+  ]);
+
+  assert.deepEqual(normalized, [{
+    id: 'legacy',
+    title: 'Legacy task',
+    completed: false,
+    createdAt: 100,
+    updatedAt: 100,
+  }]);
 });

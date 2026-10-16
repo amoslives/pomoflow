@@ -20,12 +20,10 @@ A retro pixel-style Pomodoro productivity timer with customizable intervals, tas
   - Custom retro checkboxes separating pending and completed tasks.
   - Inline title editing and deletion with hover/tap actions.
   - Cross-device sync supported via Cloudflare Pages & KV.
-- **Docked Audio & Ambient Player**:
+- **Docked Audio Player**:
   - **YouTube API Integration**: Load and play any individual YouTube song/video or playlist URL/ID.
   - **Shuffle & Repeat Modes**: Randomize playlist playback using Fisher-Yates and toggle Repeat One, Repeat All, or Repeat Off.
   - **Queue / Playlist Manager**: Expand the drawer to inspect loaded tracks, see active track indicator (`▶`), jump directly to tracks, or remove items.
-  - **Built-in Synthesizers**: Web Audio ambient soundscapes (Rain on Window, Deep Focus Drone, Gentle White Noise) requiring zero external audio files.
-  - **Preset Focus Stations**: Quick-load buttons for Lofi Girl, Synthwave Radio, Classical Study Beats, and Ambient noise.
 - **Weekly Focus Analytics**:
   - Separate **[Stats]** tab powered by **Recharts**.
   - Bar chart showing daily completed Pomodoros across the past 7 days.

@@ -194,3 +194,21 @@ test('task API revokes a sync room and its legacy KV fallback', async () => {
     revision: 0,
   });
 });
+
+test('task API rate limits abusive request bursts by Cloudflare client IP', async () => {
+  const db = new FakeD1();
+  const makeRequest = () => new Request('https://pomoflow.pages.dev/api/tasks', {
+    headers: {
+      Authorization: `Bearer ${credential}`,
+      'CF-Connecting-IP': '192.0.2.99',
+    },
+  });
+
+  for (let count = 0; count < 120; count += 1) {
+    const response = await onRequestGet(context(makeRequest(), db));
+    assert.notEqual(response.status, 429);
+  }
+  const blocked = await onRequestGet(context(makeRequest(), db));
+  assert.equal(blocked.status, 429);
+  assert.ok(Number(blocked.headers.get('Retry-After')) >= 1);
+});

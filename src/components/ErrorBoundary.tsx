@@ -30,13 +30,13 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (!this.state.failed) return this.props.children;
     return (
-      <main className="min-h-screen flex items-center justify-center p-6 bg-[#e4e4e4] text-neutral-900 font-pixel">
-        <div className="max-w-lg border-2 border-neutral-700 bg-[#cfcfcf] p-6 shadow-[6px_6px_0px_rgba(0,0,0,0.25)] text-center">
-          <h1 className="text-3xl uppercase">Pomoflow could not load</h1>
-          <p className="mt-2 font-mono-tech">
-            Saved browser data is invalid or the app hit an unexpected error. Reset local Pomoflow data to recover.
+      <main className="min-h-screen flex items-center justify-center p-6 font-pixel">
+        <div className="dialog max-w-lg p-6 text-center">
+          <h1 className="text-2xl font-bold">Pomoflow could not load</h1>
+          <p className="mt-2 text-lg">
+            The data saved in this browser is invalid, or the app hit an unexpected error. Resetting the local data clears tasks and stats stored on this device.
           </p>
-          <button type="button" onClick={this.resetLocalData} className="mt-5 px-4 py-2 bg-neutral-800 text-white uppercase cursor-pointer">
+          <button type="button" onClick={this.resetLocalData} className="btn btn-default mt-5">
             Reset local data
           </button>
         </div>

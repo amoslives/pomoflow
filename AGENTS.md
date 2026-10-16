@@ -22,6 +22,10 @@ React 19 + Vite + Tailwind v4 Pomodoro timer SPA. One backend API (`/api/tasks`)
 
 The frontend calls the relative path `/api/tasks` (`src/App.tsx`), so it works against either. When changing the API shape, update both implementations plus `src/utils/sync.ts`.
 
+## UI conventions
+
+The look is a one-bit classic desktop (menu bar, pinstriped window title bars, bevelled buttons, square checkboxes, dithered desktop). All of it comes from a small class set in `src/index.css`: `.menubar`, `.window`/`.titlebar`, `.dialog`, `.btn` (+ `-default`, `-sm`, `-lg`, `-icon`, `-ghost`), `.field`, `.checkbox`, `.groupbox`, `.list-row`, `.lcd`, `.progress`, `.slider`. Colour comes from two variables, `--ink` and `--paper`, which swap under `.dark`; do not introduce other colours. Fonts: Pixelify Sans for UI text, VT323 (`.font-data`) for digits and data. Tailwind is used for layout only. `public/og-image.png` and `docs/*` are generated screenshots; regenerate them after visual changes.
+
 ## Gotchas
 
 - The `@` path alias maps to the **repo root**, not `src/`.

@@ -54,6 +54,18 @@ interface NativePlaylistTrack {
   metadataLoaded: boolean;
 }
 
+interface SavedPlayback {
+  trackId: string;
+  position: number;
+  playlistIndex: number;
+}
+
+interface LoadSourceOptions {
+  autoplay?: boolean;
+  startSeconds?: number;
+  playlistIndex?: number;
+}
+
 const PLAYLIST_METADATA_BATCH_SIZE = 25;
 
 function fallbackTrackTitle(sourceType: TrackItem['sourceType']): string {
@@ -83,6 +95,26 @@ function normalizeQueue(value: unknown): TrackItem[] {
   }).map(removeGeneratedIdTitle);
 }
 
+function normalizeSavedPlayback(value: unknown, queue: TrackItem[]): SavedPlayback | null {
+  if (!value || typeof value !== 'object') return null;
+  const playback = value as Partial<SavedPlayback>;
+  if (
+    typeof playback.trackId !== 'string'
+    || !queue.some((track) => track.id === playback.trackId)
+    || typeof playback.position !== 'number'
+    || !Number.isFinite(playback.position)
+    || playback.position < 0
+    || playback.position > 7 * 24 * 60 * 60
+  ) return null;
+  return {
+    trackId: playback.trackId,
+    position: playback.position,
+    playlistIndex: typeof playback.playlistIndex === 'number' && Number.isInteger(playback.playlistIndex)
+      ? Math.max(-1, playback.playlistIndex)
+      : -1,
+  };
+}
+
 export function AudioPlayer() {
   const [showSettings, setShowSettings] = useState(false);
   const [showPlaylist, setShowPlaylist] = useState(false);
@@ -95,32 +127,41 @@ export function AudioPlayer() {
     }
     return [];
   });
+  const restoredPlaybackRef = useRef(
+    normalizeSavedPlayback(parseStoredJson(localStorage.getItem('pomodoro_music_playback')), queue)
+  );
+  const restoredPlayback = restoredPlaybackRef.current;
 
-  const [currentTrackIndex, setCurrentTrackIndex] = useState<number>(0);
+  const [currentTrackIndex, setCurrentTrackIndex] = useState<number>(() => {
+    if (!restoredPlayback) return 0;
+    const index = queue.findIndex((track) => track.id === restoredPlayback.trackId);
+    return index >= 0 ? index : 0;
+  });
   const [isPlaying, setIsPlaying] = useState(false);
   const [isShuffle, setIsShuffle] = useState(false);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('all');
   const [volume, setVolume] = useState(50);
   const [isMuted, setIsMuted] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
+  const [currentTime, setCurrentTime] = useState(restoredPlayback?.position || 0);
   const [duration, setDuration] = useState(0);
   const [liveTitle, setLiveTitle] = useState<string>('');
   const [playedIndices, setPlayedIndices] = useState<number[]>([]);
   const [apiReady, setApiReady] = useState(false);
   const [expandedPlaylistId, setExpandedPlaylistId] = useState<string | null>(null);
   const [nativePlaylistTracks, setNativePlaylistTracks] = useState<NativePlaylistTrack[]>([]);
-  const [nativePlaylistIndex, setNativePlaylistIndex] = useState(-1);
+  const [nativePlaylistIndex, setNativePlaylistIndex] = useState(restoredPlayback?.playlistIndex ?? -1);
   const [isPlaylistMetadataLoading, setIsPlaylistMetadataLoading] = useState(false);
   const [isLive, setIsLive] = useState(false);
   const [playbackError, setPlaybackError] = useState('');
   const [isSeeking, setIsSeeking] = useState(false);
-  const [seekPreview, setSeekPreview] = useState(0);
+  const [seekPreview, setSeekPreview] = useState(restoredPlayback?.position || 0);
 
   const ytPlayerRef = useRef<any>(null);
   const timerIntervalRef = useRef<number | null>(null);
-  const pendingTrackRef = useRef<TrackItem | null>(null);
+  const pendingTrackRef = useRef<{ track: TrackItem; options: LoadSourceOptions } | null>(null);
   const handleNextTrackRef = useRef<() => void>(() => {});
-  const resumePositionRef = useRef(0);
+  const resumePositionRef = useRef(restoredPlayback?.position || 0);
+  const restoredPlayerRef = useRef(false);
   const queueRef = useRef(queue);
   const currentTrackIndexRef = useRef(currentTrackIndex);
   const repeatModeRef = useRef(repeatMode);
@@ -141,6 +182,18 @@ export function AudioPlayer() {
   useEffect(() => {
     localStorage.setItem('pomodoro_music_queue', JSON.stringify(queue));
   }, [queue]);
+
+  useEffect(() => {
+    if (!currentTrack || isLive) {
+      localStorage.removeItem('pomodoro_music_playback');
+      return;
+    }
+    localStorage.setItem('pomodoro_music_playback', JSON.stringify({
+      trackId: currentTrack.id,
+      position: Math.max(0, currentTime),
+      playlistIndex: nativePlaylistIndex,
+    } satisfies SavedPlayback));
+  }, [currentTrack, currentTime, nativePlaylistIndex, isLive]);
 
   // Load YouTube Iframe API once
   useEffect(() => {
@@ -328,9 +381,12 @@ export function AudioPlayer() {
     loadYouTubeSource(track);
   };
 
-  const loadYouTubeSource = (track: TrackItem) => {
+  const loadYouTubeSource = (track: TrackItem, options: LoadSourceOptions = {}) => {
+    const autoplay = options.autoplay !== false;
+    const startSeconds = Math.max(0, options.startSeconds || 0);
+    const playlistIndex = Math.max(0, options.playlistIndex || 0);
     if (!window.YT || !window.YT.Player) {
-      pendingTrackRef.current = track;
+      pendingTrackRef.current = { track, options };
       return;
     }
     pendingTrackRef.current = null;
@@ -344,8 +400,22 @@ export function AudioPlayer() {
       if (repeatMode === 'all' && typeof event.target.setLoop === 'function') {
         event.target.setLoop(true);
       }
-      event.target.playVideo();
-      setIsPlaying(true);
+      if (startSeconds > 0 && typeof event.target.seekTo === 'function') {
+        event.target.seekTo(startSeconds, true);
+      }
+      setCurrentTime(startSeconds);
+      setSeekPreview(startSeconds);
+      resumePositionRef.current = startSeconds;
+      if (typeof event.target.getDuration === 'function') {
+        setDuration(event.target.getDuration() || 0);
+      }
+      if (autoplay) {
+        event.target.playVideo();
+        setIsPlaying(true);
+      } else {
+        event.target.pauseVideo?.();
+        setIsPlaying(false);
+      }
       if (track.sourceType === 'youtube-playlist') {
         syncNativePlaylist(event.target);
       }
@@ -368,6 +438,11 @@ export function AudioPlayer() {
         } catch {}
       } else if (event.data === 2) {
         setIsPlaying(false);
+      } else if (event.data === 5) {
+        setIsPlaying(false);
+        setCurrentTime(startSeconds);
+        setSeekPreview(startSeconds);
+        setDuration(event.target.getDuration?.() || 0);
       } else if (event.data === 0) {
         // Track ended
         handleNextTrackRef.current();
@@ -407,16 +482,32 @@ export function AudioPlayer() {
     if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
       try {
         if (track.sourceType === 'youtube-playlist' && track.playlistId) {
-          ytPlayerRef.current.loadPlaylist({
+          const playlistOptions = {
             list: track.playlistId,
             listType: 'playlist',
-            index: 0,
-          });
+            index: playlistIndex,
+            startSeconds,
+          };
+          if (!autoplay && typeof ytPlayerRef.current.cuePlaylist === 'function') {
+            ytPlayerRef.current.cuePlaylist(playlistOptions);
+          } else {
+            ytPlayerRef.current.loadPlaylist(playlistOptions);
+          }
         } else if (track.youtubeId) {
-          ytPlayerRef.current.loadVideoById(track.youtubeId);
+          const videoOptions = { videoId: track.youtubeId, startSeconds };
+          if (!autoplay && typeof ytPlayerRef.current.cueVideoById === 'function') {
+            ytPlayerRef.current.cueVideoById(videoOptions);
+          } else {
+            ytPlayerRef.current.loadVideoById(videoOptions);
+          }
         }
-        ytPlayerRef.current.playVideo();
-        setIsPlaying(true);
+        if (autoplay) {
+          ytPlayerRef.current.playVideo();
+          setIsPlaying(true);
+        } else {
+          ytPlayerRef.current.pauseVideo?.();
+          setIsPlaying(false);
+        }
         return;
       } catch {}
     }
@@ -432,12 +523,13 @@ export function AudioPlayer() {
       height: '1',
       width: '1',
       playerVars: {
-        autoplay: 1,
+        autoplay: autoplay ? 1 : 0,
         controls: 0,
         disablekb: 1,
         fs: 0,
         modestbranding: 1,
         rel: 0,
+        start: Math.floor(startSeconds),
       },
       events: {
         onReady: onPlayerReady,
@@ -449,6 +541,7 @@ export function AudioPlayer() {
     if (track.sourceType === 'youtube-playlist' && track.playlistId) {
       playerConfig.playerVars.listType = 'playlist';
       playerConfig.playerVars.list = track.playlistId;
+      playerConfig.playerVars.index = playlistIndex;
     } else if (track.youtubeId) {
       playerConfig.videoId = track.youtubeId;
     }
@@ -464,7 +557,20 @@ export function AudioPlayer() {
 
   useEffect(() => {
     if (apiReady && pendingTrackRef.current) {
-      loadYouTubeSource(pendingTrackRef.current);
+      const pending = pendingTrackRef.current;
+      loadYouTubeSource(pending.track, pending.options);
+      return;
+    }
+    if (apiReady && restoredPlayback && !restoredPlayerRef.current) {
+      const restoredTrack = queue.find((track) => track.id === restoredPlayback.trackId);
+      if (restoredTrack) {
+        restoredPlayerRef.current = true;
+        loadYouTubeSource(restoredTrack, {
+          autoplay: false,
+          startSeconds: restoredPlayback.position,
+          playlistIndex: restoredPlayback.playlistIndex,
+        });
+      }
     }
   }, [apiReady]);
 

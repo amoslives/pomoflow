@@ -25,13 +25,13 @@ test('generateSyncKey produces unique high-entropy credentials', () => {
 });
 
 test('normalizeSyncKey makes passphrases case-insensitive', () => {
-  assert.equal(normalizeSyncKey(' PIXEL-5605 '), 'pixel-5605');
+  assert.equal(normalizeSyncKey(' LEGACY-ROOM-1234 '), 'legacy-room-1234');
   assert.equal(normalizeSyncKey('My_Secret_Key'), 'my_secret_key');
 });
 
 test('isSecureSyncKey distinguishes generated credentials from legacy passphrases', () => {
   assert.equal(isSecureSyncKey(generateSyncKey()), true);
-  assert.equal(isSecureSyncKey('pixel-5605'), false);
+  assert.equal(isSecureSyncKey('legacy-room-1234'), false);
 });
 
 test('mergeTasks merges distinct tasks from local and remote', () => {

@@ -25,3 +25,20 @@ test('a source submitted before API readiness starts when the API becomes ready'
 
   await expect.poll(() => page.evaluate(() => (window as any).__playerCreated)).toBe(1);
 });
+
+test('saved queue entries never expose raw YouTube IDs as titles', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    localStorage.setItem('pomodoro_music_queue', JSON.stringify([
+      {
+        id: 'legacy-video',
+        title: 'YouTube Track: jfKfPfyJRdk',
+        sourceType: 'youtube-video',
+        youtubeId: 'jfKfPfyJRdk',
+      },
+    ]));
+  });
+  await page.reload();
+  await expect(page.getByText('Saved YouTube track', { exact: true })).toBeVisible();
+  await expect(page.getByText(/jfKfPfyJRdk/)).toHaveCount(0);
+});

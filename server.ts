@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import { normalizeSyncKey } from './src/utils/sync.ts';
+import { isValidSyncKey, normalizeSyncKey } from './src/utils/sync.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,20 +27,85 @@ if (fs.existsSync(DATA_FILE)) {
   } catch {}
 }
 
-function saveStore() {
+function saveStore(): boolean {
   try {
     fs.writeFileSync(DATA_FILE, JSON.stringify(store, null, 2), 'utf-8');
-  } catch {}
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const MAX_TASKS = 500;
+const MAX_PAYLOAD_BYTES = 256 * 1024;
+
+function isValidTask(task: any): boolean {
+  return task
+    && typeof task === 'object'
+    && typeof task.id === 'string'
+    && task.id.length > 0
+    && task.id.length <= 128
+    && typeof task.title === 'string'
+    && task.title.trim().length > 0
+    && task.title.length <= 500
+    && typeof task.completed === 'boolean'
+    && typeof task.createdAt === 'number'
+    && Number.isFinite(task.createdAt)
+    && task.createdAt >= 0;
+}
+
+function isValidTasks(tasks: unknown): tasks is any[] {
+  return Array.isArray(tasks)
+    && tasks.length <= MAX_TASKS
+    && tasks.every(isValidTask)
+    && Buffer.byteLength(JSON.stringify(tasks), 'utf8') <= MAX_PAYLOAD_BYTES;
+}
+
+function getCredential(req: express.Request, fallback?: unknown): string {
+  const bearer = req.get('Authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
+  return normalizeSyncKey(bearer || (typeof fallback === 'string' ? fallback : ''));
+}
+
+function isAllowedOrigin(req: express.Request): boolean {
+  const origin = req.get('Origin');
+  return !origin || origin === `${req.protocol}://${req.get('host')}`;
+}
+
+function setApiHeaders(req: express.Request, res: express.Response) {
+  res.set({
+    'Cache-Control': 'no-store',
+    'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+    'Permissions-Policy': 'camera=(), geolocation=(), microphone=()',
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Vary': 'Origin',
+  });
+  const origin = req.get('Origin');
+  if (origin && isAllowedOrigin(req)) {
+    res.set({
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+    });
+  }
 }
 
 // API Routes
+app.options('/api/tasks', (req, res) => {
+  setApiHeaders(req, res);
+  if (!isAllowedOrigin(req)) return res.status(403).json({ error: 'Cross-origin requests are not allowed' });
+  return res.sendStatus(204);
+});
+
 app.get('/api/tasks', (req, res) => {
+  setApiHeaders(req, res);
   const requestedKey = (req.query.key as string || '').trim();
-  if (!requestedKey) {
-    return res.status(400).json({ error: 'Missing key parameter' });
+  const key = getCredential(req, requestedKey);
+  if (!key || !isValidSyncKey(key)) {
+    return res.status(401).json({ error: 'A valid sync credential is required' });
   }
 
-  const key = normalizeSyncKey(requestedKey);
   const record = store[key]
     || (requestedKey !== key ? store[requestedKey] : undefined)
     || { tasks: [], updatedAt: Date.now() };
@@ -48,22 +113,31 @@ app.get('/api/tasks', (req, res) => {
 });
 
 app.post('/api/tasks', (req, res) => {
-  const { key, tasks } = req.body;
-  const requestedKey = (key || '').trim();
+  setApiHeaders(req, res);
+  if (!isAllowedOrigin(req)) return res.status(403).json({ error: 'Cross-origin requests are not allowed' });
 
-  if (!requestedKey || !Array.isArray(tasks)) {
-    return res.status(400).json({ error: 'Payload must contain string key and array of tasks' });
+  const { key: requestedKey, tasks } = req.body || {};
+  const normalizedKey = getCredential(req, requestedKey);
+
+  if (!normalizedKey || !isValidSyncKey(normalizedKey)) {
+    return res.status(401).json({ error: 'A valid sync credential is required' });
   }
-
-  const normalizedKey = normalizeSyncKey(requestedKey);
+  if (!isValidTasks(tasks)) {
+    return res.status(400).json({ error: 'Payload contains invalid tasks or exceeds its size limit' });
+  }
 
   const payload = {
     tasks,
     updatedAt: Date.now(),
   };
 
+  const previous = store[normalizedKey];
   store[normalizedKey] = payload;
-  saveStore();
+  if (!saveStore()) {
+    if (previous) store[normalizedKey] = previous;
+    else delete store[normalizedKey];
+    return res.status(500).json({ error: 'Could not persist tasks' });
+  }
 
   return res.json({ success: true, count: tasks.length, updatedAt: payload.updatedAt });
 });

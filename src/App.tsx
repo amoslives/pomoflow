@@ -84,10 +84,22 @@ export default function App() {
   // Cloudflare Sync state
   const [syncKey, setSyncKey] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      const urlKey = new URLSearchParams(window.location.search).get('sync');
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      const searchParams = new URLSearchParams(window.location.search);
+      const urlKey = hashParams.get('sync') || searchParams.get('sync');
       if (urlKey && isValidSyncKey(urlKey)) {
         const normalizedKey = normalizeSyncKey(urlKey);
         localStorage.setItem('pomodoro_sync_key', normalizedKey);
+
+        hashParams.delete('sync');
+        searchParams.delete('sync');
+        const cleanSearch = searchParams.toString();
+        const cleanHash = hashParams.toString();
+        window.history.replaceState(
+          null,
+          '',
+          `${window.location.pathname}${cleanSearch ? `?${cleanSearch}` : ''}${cleanHash ? `#${cleanHash}` : ''}`
+        );
         return normalizedKey;
       }
       const storedKey = localStorage.getItem('pomodoro_sync_key') || '';
@@ -124,19 +136,24 @@ export default function App() {
     const normalizedKey = normalizeSyncKey(key);
     if (!normalizedKey || !isValidSyncKey(normalizedKey)) return;
     setSyncStatus('syncing');
+    setSyncError(null);
     try {
       const res = await fetch('/api/tasks', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: normalizedKey, tasks: tasksToPush }),
+        headers: {
+          Authorization: `Bearer ${normalizedKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ tasks: tasksToPush }),
       });
       if (res.ok) {
         setSyncStatus('synced');
         setLastSynced(Date.now());
         setSyncError(null);
       } else {
+        const data = await res.json().catch(() => null);
         setSyncStatus('error');
-        setSyncError('Failed to push to Cloudflare');
+        setSyncError(data?.error || 'Failed to push tasks');
       }
     } catch {
       setSyncStatus('error');
@@ -149,8 +166,11 @@ export default function App() {
     const normalizedKey = normalizeSyncKey(key);
     if (!normalizedKey || !isValidSyncKey(normalizedKey)) return;
     setSyncStatus('syncing');
+    setSyncError(null);
     try {
-      const res = await fetch(`/api/tasks?key=${encodeURIComponent(normalizedKey)}`);
+      const res = await fetch('/api/tasks', {
+        headers: { Authorization: `Bearer ${normalizedKey}` },
+      });
       if (res.ok) {
         const data = await res.json();
         const remoteTasks: Task[] = Array.isArray(data.tasks) ? data.tasks : [];
@@ -167,8 +187,9 @@ export default function App() {
         setLastSynced(Date.now());
         setSyncError(null);
       } else {
+        const data = await res.json().catch(() => null);
         setSyncStatus('error');
-        setSyncError('Could not retrieve remote tasks');
+        setSyncError(data?.error || 'Could not retrieve remote tasks');
       }
     } catch {
       setSyncStatus('error');
@@ -201,7 +222,6 @@ export default function App() {
     const normalizedKey = normalizeSyncKey(newKey);
     setSyncKey(normalizedKey);
     localStorage.setItem('pomodoro_sync_key', normalizedKey);
-    fetchTasksFromServer(normalizedKey);
   };
 
   const handleDisconnectSync = () => {

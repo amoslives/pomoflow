@@ -2,6 +2,8 @@
 
 A retro pixel-style Pomodoro productivity timer with customizable intervals, task management, ambient background audio / YouTube player, cross-device task sync with Cloudflare, and weekly productivity data visualization.
 
+**Live app:** [pomoflow.pages.dev](https://pomoflow.pages.dev)
+
 Inspired by [pomoflow.floot.app](https://pomoflow.floot.app/).
 
 ---

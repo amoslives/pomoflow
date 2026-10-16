@@ -33,6 +33,30 @@ interface TaskRoom {
 
 const MAX_TASKS = 500;
 const MAX_PAYLOAD_BYTES = 256 * 1024;
+const RATE_LIMIT_REQUESTS = 120;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const rateLimitBuckets = new Map<string, { count: number; resetsAt: number }>();
+
+function enforceRateLimit(request: Request): Response | null {
+  const now = Date.now();
+  const client = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const current = rateLimitBuckets.get(client);
+  const bucket = !current || current.resetsAt <= now
+    ? { count: 1, resetsAt: now + RATE_LIMIT_WINDOW_MS }
+    : { count: current.count + 1, resetsAt: current.resetsAt };
+  rateLimitBuckets.set(client, bucket);
+
+  if (rateLimitBuckets.size > 10_000) {
+    for (const [key, value] of rateLimitBuckets) {
+      if (value.resetsAt <= now) rateLimitBuckets.delete(key);
+    }
+  }
+
+  if (bucket.count <= RATE_LIMIT_REQUESTS) return null;
+  const response = jsonResponse(request, { error: 'Too many requests' }, 429);
+  response.headers.set('Retry-After', String(Math.max(1, Math.ceil((bucket.resetsAt - now) / 1000))));
+  return response;
+}
 
 function isAllowedOrigin(request: Request): boolean {
   const origin = request.headers.get('Origin');
@@ -131,6 +155,8 @@ export async function onRequestOptions(context: EventContext): Promise<Response>
 }
 
 export async function onRequestGet(context: EventContext): Promise<Response> {
+  const rateLimited = enforceRateLimit(context.request);
+  if (rateLimited) return rateLimited;
   if (!context.env.TASKS_DB) return unavailableStorage(context.request);
 
   const url = new URL(context.request.url);
@@ -162,6 +188,8 @@ export async function onRequestGet(context: EventContext): Promise<Response> {
 }
 
 export async function onRequestPost(context: EventContext): Promise<Response> {
+  const rateLimited = enforceRateLimit(context.request);
+  if (rateLimited) return rateLimited;
   if (!isAllowedOrigin(context.request)) {
     return jsonResponse(context.request, { error: 'Cross-origin requests are not allowed' }, 403);
   }
@@ -235,6 +263,8 @@ export async function onRequestPost(context: EventContext): Promise<Response> {
 }
 
 export async function onRequestDelete(context: EventContext): Promise<Response> {
+  const rateLimited = enforceRateLimit(context.request);
+  if (rateLimited) return rateLimited;
   if (!isAllowedOrigin(context.request)) {
     return jsonResponse(context.request, { error: 'Cross-origin requests are not allowed' }, 403);
   }

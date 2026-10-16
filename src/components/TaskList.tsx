@@ -28,6 +28,15 @@ export function TaskList({
   const [editTitle, setEditTitle] = useState('');
 
   const { pending, completed } = partitionTasks(tasks);
+  const syncLabel = !syncKey
+    ? 'Set up sync'
+    : syncStatus === 'syncing'
+      ? 'Syncing'
+      : syncStatus === 'error'
+        ? 'Sync error'
+        : syncStatus === 'synced'
+          ? 'Synced'
+          : 'Sync on';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,10 +66,14 @@ export function TaskList({
         <button
           type="button"
           onClick={onOpenSyncModal}
+          aria-label={`Open sync settings: ${syncLabel}`}
+          title="Manage cross-device task sync"
           className="flex items-center gap-1.5 px-2.5 py-1 text-xs sm:text-sm uppercase font-mono-tech border border-neutral-400 dark:border-neutral-600 bg-white/70 dark:bg-neutral-800/70 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 cursor-pointer shadow-[1px_1px_0px_rgba(0,0,0,0.15)] active:translate-y-0.5 transition-all"
         >
-          <Cloud className={`w-3.5 h-3.5 ${syncKey ? 'text-orange-500' : 'text-neutral-400'}`} />
-          <span>{syncKey ? `Cloudflare: ${syncKey}` : 'Cloudflare Sync'}</span>
+          <Cloud className={`w-3.5 h-3.5 ${
+            syncStatus === 'error' ? 'text-red-500' : syncKey ? 'text-orange-500' : 'text-neutral-400'
+          }`} />
+          <span>{syncLabel}</span>
           {syncStatus === 'syncing' && <RefreshCw className="w-3 h-3 animate-spin text-orange-500" />}
         </button>
       </div>

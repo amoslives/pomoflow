@@ -56,6 +56,20 @@ interface NativePlaylistTrack {
 
 const PLAYLIST_METADATA_BATCH_SIZE = 25;
 
+function fallbackTrackTitle(sourceType: TrackItem['sourceType']): string {
+  return sourceType === 'youtube-playlist' ? 'Saved YouTube playlist' : 'Saved YouTube track';
+}
+
+function removeGeneratedIdTitle(track: TrackItem): TrackItem {
+  const rawId = track.sourceType === 'youtube-playlist' ? track.playlistId : track.youtubeId;
+  const oldGeneratedTitle = track.sourceType === 'youtube-playlist'
+    ? `YouTube Playlist: ${rawId}`
+    : `YouTube Track: ${rawId}`;
+  return track.title === oldGeneratedTitle
+    ? { ...track, title: fallbackTrackTitle(track.sourceType) }
+    : track;
+}
+
 function normalizeQueue(value: unknown): TrackItem[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is TrackItem => {
@@ -66,7 +80,7 @@ function normalizeQueue(value: unknown): TrackItem[] {
     if (track.sourceType === 'youtube-video') return typeof track.youtubeId === 'string';
     if (track.sourceType === 'youtube-playlist') return typeof track.playlistId === 'string';
     return false;
-  });
+  }).map(removeGeneratedIdTitle);
 }
 
 export function AudioPlayer() {
@@ -296,6 +310,7 @@ export function AudioPlayer() {
     if (!track) return;
     setCurrentTime(0);
     setDuration(0);
+    setLiveTitle('');
     setSeekPreview(0);
     setIsLive(false);
     setPlaybackError('');
@@ -574,7 +589,7 @@ export function AudioPlayer() {
 
     const newTrack: TrackItem = {
       id: `custom-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      title: inputTitle.trim() || (source.type === 'playlist' ? `YouTube Playlist: ${source.id}` : `YouTube Track: ${source.id}`),
+      title: inputTitle.trim() || fallbackTrackTitle(source.type === 'playlist' ? 'youtube-playlist' : 'youtube-video'),
       sourceType: source.type === 'playlist' ? 'youtube-playlist' : 'youtube-video',
       youtubeId: source.type === 'video' ? source.id : undefined,
       playlistId: source.type === 'playlist' ? source.id : undefined,
@@ -587,6 +602,15 @@ export function AudioPlayer() {
     setShowSettings(false);
     if (newTrack.sourceType === 'youtube-playlist') {
       setExpandedPlaylistId(newTrack.id);
+    } else if (!inputTitle.trim() && newTrack.youtubeId) {
+      void fetchYouTubeVideoMetadata(newTrack.youtubeId).then((metadata) => {
+        if (!metadata) return;
+        setQueue((current) => current.map((track) =>
+          track.id === newTrack.id
+            ? { ...track, title: metadata.title, author: metadata.author }
+            : track
+        ));
+      });
     }
     playTrackAtIndex(0, [newTrack, ...queue]);
   };

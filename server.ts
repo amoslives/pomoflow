@@ -74,7 +74,7 @@ function setApiHeaders(req: express.Request, res: express.Response) {
   if (origin && isAllowedOrigin(req)) {
     res.set({
       'Access-Control-Allow-Origin': origin,
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Authorization, Content-Type',
     });
   }
@@ -154,6 +154,24 @@ app.post('/api/tasks', (req, res) => {
     updatedAt: payload.updatedAt,
     revision: payload.revision,
   });
+});
+
+app.delete('/api/tasks', (req, res) => {
+  setApiHeaders(req, res);
+  if (!isAllowedOrigin(req)) return res.status(403).json({ error: 'Cross-origin requests are not allowed' });
+
+  const credential = getCredential(req);
+  if (!credential || !isValidSyncKey(credential)) {
+    return res.status(401).json({ error: 'A valid sync credential is required' });
+  }
+
+  const previous = store[credential];
+  delete store[credential];
+  if (!saveStore()) {
+    if (previous) store[credential] = previous;
+    return res.status(500).json({ error: 'Could not revoke sync room' });
+  }
+  return res.json({ success: true });
 });
 
 async function startServer() {

@@ -216,6 +216,20 @@ export default function App() {
     }
   }, [syncKey, fetchTasksFromServer]);
 
+  // Keep open devices converged without requiring a focus change or manual sync.
+  useEffect(() => {
+    if (!syncKey) return;
+    const refresh = () => {
+      if (document.visibilityState === 'visible') fetchTasksFromServer(syncKey);
+    };
+    const interval = window.setInterval(refresh, 15_000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [syncKey, fetchTasksFromServer]);
+
   // Auto-sync on window focus
   useEffect(() => {
     const handleFocus = () => {
@@ -233,6 +247,34 @@ export default function App() {
     const normalizedKey = normalizeSyncKey(newKey);
     setSyncKey(normalizedKey);
     localStorage.setItem('pomodoro_sync_key', normalizedKey);
+  };
+
+  const handleRotateSyncKey = async (newKey: string): Promise<boolean> => {
+    if (!syncKey) {
+      handleSetSyncKey(newKey);
+      return true;
+    }
+    setSyncStatus('syncing');
+    setSyncError(null);
+    try {
+      const response = await fetch('/api/tasks', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${syncKey}` },
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        setSyncStatus('error');
+        setSyncError(data?.error || 'Could not revoke the old pairing key');
+        return false;
+      }
+      syncRevisionRef.current = 0;
+      handleSetSyncKey(newKey);
+      return true;
+    } catch {
+      setSyncStatus('error');
+      setSyncError('Network error while rotating the pairing key');
+      return false;
+    }
   };
 
   const handleDisconnectSync = () => {
@@ -464,6 +506,7 @@ export default function App() {
         syncError={syncError}
         lastSynced={lastSynced}
         onSetSyncKey={handleSetSyncKey}
+        onRotateSyncKey={handleRotateSyncKey}
         onDisconnect={handleDisconnectSync}
         onManualSync={() => syncKey && fetchTasksFromServer(syncKey)}
       />

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { onRequestGet, onRequestOptions, onRequestPost } from './tasks.ts';
+import { onRequestDelete, onRequestGet, onRequestOptions, onRequestPost } from './tasks.ts';
 
 interface Room {
   tasks_json: string;
@@ -44,6 +44,11 @@ class FakeD1 {
             updated_at: Number(values[1]),
           });
           return { revision } as T;
+        }
+        if (query.includes('DELETE FROM task_rooms')) {
+          const key = String(values[0]);
+          const existed = this.rooms.delete(key);
+          return (existed ? { credential_hash: key } : null) as T | null;
         }
         throw new Error(`Unsupported SQL in fake D1: ${query}`);
       },
@@ -166,4 +171,26 @@ test('task API preflight allows only its own origin', async () => {
     headers: { Origin: 'https://attacker.example' },
   })));
   assert.equal(denied.status, 403);
+});
+
+test('task API revokes a sync room and its legacy KV fallback', async () => {
+  const db = new FakeD1();
+  const kv = new Map<string, string>();
+  await onRequestPost(context(taskRequest([task]), db, kv));
+  kv.set(`tasks:${credential}`, JSON.stringify({ tasks: [task], updatedAt: 1 }));
+
+  const response = await onRequestDelete(context(new Request('https://pomoflow.pages.dev/api/tasks', {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${credential}` },
+  }), db, kv));
+  assert.equal(response.status, 200);
+  assert.equal(kv.has(`tasks:${credential}`), false);
+
+  const get = await onRequestGet(context(new Request('https://pomoflow.pages.dev/api/tasks', {
+    headers: { Authorization: `Bearer ${credential}` },
+  }), db, kv));
+  assert.deepEqual(await get.json().then(({ tasks, revision }) => ({ tasks, revision })), {
+    tasks: [],
+    revision: 0,
+  });
 });

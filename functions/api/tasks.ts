@@ -54,7 +54,7 @@ function responseHeaders(request: Request): Record<string, string> {
   const origin = request.headers.get('Origin');
   if (origin && isAllowedOrigin(request)) {
     headers['Access-Control-Allow-Origin'] = origin;
-    headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS';
+    headers['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS';
     headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type';
   }
   return headers;
@@ -230,6 +230,32 @@ export async function onRequestPost(context: EventContext): Promise<Response> {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Error saving tasks';
+    return jsonResponse(context.request, { error: message }, 500);
+  }
+}
+
+export async function onRequestDelete(context: EventContext): Promise<Response> {
+  if (!isAllowedOrigin(context.request)) {
+    return jsonResponse(context.request, { error: 'Cross-origin requests are not allowed' }, 403);
+  }
+  if (!context.env.TASKS_DB) return unavailableStorage(context.request);
+
+  const credential = getCredential(context.request);
+  if (!credential || !isValidSyncKey(credential)) {
+    return jsonResponse(context.request, { error: 'A valid sync credential is required' }, 401);
+  }
+
+  try {
+    const credentialHash = await hashCredential(credential);
+    await context.env.TASKS_DB.prepare(
+      'DELETE FROM task_rooms WHERE credential_hash = ?1 RETURNING credential_hash'
+    ).bind(credentialHash).first();
+    if (context.env.TASKS_KV) {
+      await context.env.TASKS_KV.delete(`tasks:${credential}`);
+    }
+    return jsonResponse(context.request, { success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Could not revoke sync room';
     return jsonResponse(context.request, { error: message }, 500);
   }
 }

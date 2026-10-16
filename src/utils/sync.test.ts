@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isValidSyncKey, normalizeSyncKey, generateSyncKey, mergeTasks } from './sync.ts';
+import { isValidSyncKey, isSecureSyncKey, normalizeSyncKey, generateSyncKey, mergeTasks } from './sync.ts';
 import { createTask, type Task } from './tasks.ts';
 
 test('isValidSyncKey accepts valid keys and rejects invalid', () => {
@@ -15,12 +15,23 @@ test('isValidSyncKey accepts valid keys and rejects invalid', () => {
 test('generateSyncKey returns a formatted valid key', () => {
   const key = generateSyncKey();
   assert.ok(isValidSyncKey(key));
-  assert.match(key, /^[a-z]+-\d{4}$/);
+  assert.ok(isSecureSyncKey(key));
+  assert.match(key, /^pf-[a-z2-7]{26}$/);
+});
+
+test('generateSyncKey produces unique high-entropy credentials', () => {
+  const keys = new Set(Array.from({ length: 100 }, () => generateSyncKey()));
+  assert.equal(keys.size, 100);
 });
 
 test('normalizeSyncKey makes passphrases case-insensitive', () => {
   assert.equal(normalizeSyncKey(' PIXEL-5605 '), 'pixel-5605');
   assert.equal(normalizeSyncKey('My_Secret_Key'), 'my_secret_key');
+});
+
+test('isSecureSyncKey distinguishes generated credentials from legacy passphrases', () => {
+  assert.equal(isSecureSyncKey(generateSyncKey()), true);
+  assert.equal(isSecureSyncKey('pixel-5605'), false);
 });
 
 test('mergeTasks merges distinct tasks from local and remote', () => {

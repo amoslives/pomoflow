@@ -83,6 +83,7 @@ export function TaskList({
       <form onSubmit={handleSubmit} className="flex items-center gap-2 mb-2">
         <input
           type="text"
+          name="new-task"
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
           placeholder="Add a new task..."
@@ -104,6 +105,7 @@ export function TaskList({
                 <>
                   <input
                     type="text"
+                    name="edit-task-title"
                     value={editTitle}
                     onChange={(e) => setEditTitle(e.target.value)}
                     onKeyDown={(e) => {

@@ -5,6 +5,7 @@ import {
   getNextTrackIndex,
   getPrevTrackIndex,
   shuffleArray,
+  fetchYouTubeVideoMetadata,
 } from './youtube.ts';
 
 test('parseYouTubeSource parses video URLs and IDs', () => {
@@ -79,4 +80,29 @@ test('shuffleArray preserves items and length without mutating original', () => 
   assert.equal(shuffled.length, original.length);
   assert.deepEqual([...shuffled].sort(), [...original].sort());
   assert.notEqual(original, shuffled); // Not same reference
+});
+
+test('fetchYouTubeVideoMetadata returns public oEmbed metadata', async () => {
+  const metadata = await fetchYouTubeVideoMetadata('jfKfPfyJRdk', async () =>
+    new Response(JSON.stringify({
+      title: 'lofi hip hop radio',
+      author_name: 'Lofi Girl',
+      thumbnail_url: 'https://example.com/thumb.jpg',
+    }), { status: 200 })
+  );
+
+  assert.deepEqual(metadata, {
+    videoId: 'jfKfPfyJRdk',
+    title: 'lofi hip hop radio',
+    author: 'Lofi Girl',
+    thumbnailUrl: 'https://example.com/thumb.jpg',
+  });
+});
+
+test('fetchYouTubeVideoMetadata returns null when metadata is unavailable', async () => {
+  const metadata = await fetchYouTubeVideoMetadata('jfKfPfyJRdk', async () =>
+    new Response('Not found', { status: 404 })
+  );
+
+  assert.equal(metadata, null);
 });

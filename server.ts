@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { normalizeSyncKey } from './src/utils/sync.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,29 +35,34 @@ function saveStore() {
 
 // API Routes
 app.get('/api/tasks', (req, res) => {
-  const key = (req.query.key as string || '').trim();
-  if (!key) {
+  const requestedKey = (req.query.key as string || '').trim();
+  if (!requestedKey) {
     return res.status(400).json({ error: 'Missing key parameter' });
   }
 
-  const record = store[key] || { tasks: [], updatedAt: Date.now() };
+  const key = normalizeSyncKey(requestedKey);
+  const record = store[key]
+    || (requestedKey !== key ? store[requestedKey] : undefined)
+    || { tasks: [], updatedAt: Date.now() };
   return res.json(record);
 });
 
 app.post('/api/tasks', (req, res) => {
   const { key, tasks } = req.body;
-  const trimmedKey = (key || '').trim();
+  const requestedKey = (key || '').trim();
 
-  if (!trimmedKey || !Array.isArray(tasks)) {
+  if (!requestedKey || !Array.isArray(tasks)) {
     return res.status(400).json({ error: 'Payload must contain string key and array of tasks' });
   }
+
+  const normalizedKey = normalizeSyncKey(requestedKey);
 
   const payload = {
     tasks,
     updatedAt: Date.now(),
   };
 
-  store[trimmedKey] = payload;
+  store[normalizedKey] = payload;
   saveStore();
 
   return res.json({ success: true, count: tasks.length, updatedAt: payload.updatedAt });

@@ -1,3 +1,5 @@
+import { normalizeSyncKey } from '../../src/utils/sync.ts';
+
 /**
  * Cloudflare Pages Function: /api/tasks
  * Automatically executed on Cloudflare Pages when deployed!
@@ -33,18 +35,23 @@ export async function onRequestOptions(): Promise<Response> {
 
 export async function onRequestGet(context: EventContext): Promise<Response> {
   const url = new URL(context.request.url);
-  const key = url.searchParams.get('key')?.trim();
+  const requestedKey = url.searchParams.get('key')?.trim();
 
-  if (!key) {
+  if (!requestedKey) {
     return new Response(JSON.stringify({ error: 'Missing key parameter' }), {
       status: 400,
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
   }
 
+  const key = normalizeSyncKey(requestedKey);
+
   try {
     if (context.env.TASKS_KV) {
-      const raw = await context.env.TASKS_KV.get(`tasks:${key}`);
+      let raw = await context.env.TASKS_KV.get(`tasks:${key}`);
+      if (!raw && requestedKey !== key) {
+        raw = await context.env.TASKS_KV.get(`tasks:${requestedKey}`);
+      }
       if (raw) {
         return new Response(raw, {
           status: 200,
@@ -68,15 +75,17 @@ export async function onRequestGet(context: EventContext): Promise<Response> {
 export async function onRequestPost(context: EventContext): Promise<Response> {
   try {
     const body: any = await context.request.json();
-    const key = body?.key?.trim();
+    const requestedKey = body?.key?.trim();
     const tasks = body?.tasks;
 
-    if (!key || !Array.isArray(tasks)) {
+    if (!requestedKey || !Array.isArray(tasks)) {
       return new Response(JSON.stringify({ error: 'Payload must contain string key and array of tasks' }), {
         status: 400,
         headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
       });
     }
+
+    const key = normalizeSyncKey(requestedKey);
 
     const payload = {
       key,

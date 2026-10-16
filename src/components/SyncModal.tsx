@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Cloud, Check, RefreshCw, Copy, ExternalLink, X, Key, ShieldCheck, Zap } from 'lucide-react';
-import { isValidSyncKey, generateSyncKey } from '../utils/sync';
+import { Cloud, Check, RefreshCw, Copy, Share2, X, Key } from 'lucide-react';
+import { isValidSyncKey, normalizeSyncKey, generateSyncKey } from '../utils/sync';
 
 interface SyncModalProps {
   isOpen: boolean;
@@ -33,13 +33,14 @@ export function SyncModal({
 
   const handleConnect = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const trimmed = inputKey.trim();
-    if (!isValidSyncKey(trimmed)) {
+    const normalizedKey = normalizeSyncKey(inputKey);
+    if (!isValidSyncKey(normalizedKey)) {
       setErrorMsg('Key must be 3-32 letters, numbers, or hyphens (e.g. focus-2026)');
       return;
     }
     setErrorMsg('');
-    onSetSyncKey(trimmed);
+    setInputKey(normalizedKey);
+    onSetSyncKey(normalizedKey);
   };
 
   const handleGenerate = () => {
@@ -53,12 +54,35 @@ export function SyncModal({
     ? `${window.location.origin}${window.location.pathname}?sync=${encodeURIComponent(syncKey)}`
     : '';
 
-  const handleCopyLink = () => {
+  const handleCopyLink = async () => {
     if (!shareableUrl) return;
-    navigator.clipboard.writeText(shareableUrl).then(() => {
+    try {
+      await navigator.clipboard.writeText(shareableUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
+    } catch {
+      setErrorMsg('Could not copy the link. Select the URL and copy it manually.');
+    }
+  };
+
+  const handleShareLink = async () => {
+    if (!shareableUrl) return;
+    if (typeof navigator.share !== 'function') {
+      await handleCopyLink();
+      return;
+    }
+
+    try {
+      await navigator.share({
+        title: 'Pomoflow task sync',
+        text: 'Open this link to pair your Pomoflow tasks.',
+        url: shareableUrl,
+      });
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        setErrorMsg('Could not open the share menu. You can still copy the link.');
+      }
+    }
   };
 
   return (
@@ -138,6 +162,9 @@ export function SyncModal({
                 {syncKey === inputKey.trim() && syncKey ? 'Update' : 'Connect'}
               </button>
             </div>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
+              Keys are not case-sensitive.
+            </p>
             {errorMsg && <p className="text-red-500 text-sm mt-1">{errorMsg}</p>}
           </div>
 
@@ -167,37 +194,39 @@ export function SyncModal({
         {syncKey && (
           <div className="p-3 bg-neutral-100 dark:bg-neutral-900/60 border border-neutral-400 dark:border-neutral-700 mb-4">
             <div className="text-xs uppercase text-neutral-500 dark:text-neutral-400 font-bold mb-1">
-              Open on another computer:
+              Pair another device:
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2">
               <input
                 type="text"
                 readOnly
                 value={shareableUrl}
                 className="flex-1 px-2 py-1 text-xs font-mono-tech bg-white dark:bg-neutral-800 border border-neutral-400 dark:border-neutral-600 text-neutral-800 dark:text-neutral-200 truncate select-all"
               />
-              <button
-                type="button"
-                onClick={handleCopyLink}
-                className="px-3 py-1 bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900 text-xs uppercase flex items-center gap-1 cursor-pointer hover:bg-neutral-700 dark:hover:bg-neutral-300"
-              >
-                {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copied ? 'Copied!' : 'Copy Link'}</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleShareLink}
+                  className="flex-1 px-3 py-1.5 bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900 text-xs uppercase flex items-center justify-center gap-1.5 cursor-pointer hover:bg-neutral-700 dark:hover:bg-neutral-300"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span>Share Link</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyLink}
+                  className="flex-1 px-3 py-1.5 border border-neutral-500 text-xs uppercase flex items-center justify-center gap-1.5 cursor-pointer hover:bg-neutral-200 dark:hover:bg-neutral-700"
+                >
+                  {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copied ? 'Copied!' : 'Copy Link'}</span>
+                </button>
+              </div>
             </div>
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 italic">
-              Opening this link on your phone, laptop, or work desktop automatically pairs your tasks!
+              Send or open this link on your phone, laptop, or work desktop to pair tasks automatically.
             </p>
           </div>
         )}
-
-        {/* Deployment notice */}
-        <div className="text-xs text-neutral-500 dark:text-neutral-400 pt-2 border-t border-neutral-300 dark:border-neutral-700 flex items-start gap-2">
-          <Zap className="w-4 h-4 flex-shrink-0 text-orange-500 mt-0.5" />
-          <span>
-            <strong>Cloudflare Pages Functions</strong>: When deploying to Cloudflare Pages, your tasks store in <code>TASKS_KV</code> globally across Cloudflare edge data centers.
-          </span>
-        </div>
       </div>
     </div>
   );

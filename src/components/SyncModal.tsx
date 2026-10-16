@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Cloud, Check, RefreshCw, Copy, Share2, X, Key } from 'lucide-react';
-import { isValidSyncKey, normalizeSyncKey, generateSyncKey } from '../utils/sync';
+import { Cloud, Check, RefreshCw, Copy, Share2, ShieldAlert, X, Key } from 'lucide-react';
+import { isSecureSyncKey, isValidSyncKey, normalizeSyncKey, generateSyncKey } from '../utils/sync';
 
 interface SyncModalProps {
   isOpen: boolean;
@@ -51,7 +51,7 @@ export function SyncModal({
   };
 
   const shareableUrl = typeof window !== 'undefined' && syncKey
-    ? `${window.location.origin}${window.location.pathname}?sync=${encodeURIComponent(syncKey)}`
+    ? `${window.location.origin}${window.location.pathname}#sync=${encodeURIComponent(syncKey)}`
     : '';
 
   const handleCopyLink = async () => {
@@ -105,7 +105,9 @@ export function SyncModal({
         </div>
 
         {/* Current Status Banner */}
-        <div className="mb-4 p-3 bg-white/70 dark:bg-neutral-900/70 border border-neutral-400 dark:border-neutral-600 flex items-center justify-between">
+        <div className={`mb-4 p-3 bg-white/70 dark:bg-neutral-900/70 border flex items-center justify-between ${
+          syncStatus === 'error' ? 'border-red-500' : 'border-neutral-400 dark:border-neutral-600'
+        }`}>
           <div>
             <div className="text-xs uppercase text-neutral-500 dark:text-neutral-400 font-mono-tech">
               Status:
@@ -113,8 +115,17 @@ export function SyncModal({
             <div className="text-lg font-bold flex items-center gap-2">
               {syncKey ? (
                 <>
-                  <span className="w-2.5 h-2.5 bg-green-500 rounded-full inline-block animate-pulse" />
-                  <span>Connected: <code className="font-mono-tech px-1.5 py-0.5 bg-neutral-200 dark:bg-neutral-800 border border-neutral-400 dark:border-neutral-600">{syncKey}</code></span>
+                  <span className={`w-2.5 h-2.5 rounded-full inline-block ${
+                    syncStatus === 'synced'
+                      ? 'bg-green-500'
+                      : syncStatus === 'error'
+                        ? 'bg-red-500'
+                        : 'bg-amber-500 animate-pulse'
+                  }`} />
+                  <span>
+                    {syncStatus === 'synced' ? 'Synced' : syncStatus === 'error' ? 'Sync failed' : 'Connecting'}:
+                    {' '}<code className="font-mono-tech px-1.5 py-0.5 bg-neutral-200 dark:bg-neutral-800 border border-neutral-400 dark:border-neutral-600">{syncKey}</code>
+                  </span>
                 </>
               ) : (
                 <>
@@ -123,6 +134,16 @@ export function SyncModal({
                 </>
               )}
             </div>
+            {syncError && (
+              <p className="mt-1 text-sm text-red-600 dark:text-red-400 font-mono-tech">
+                {syncError}
+              </p>
+            )}
+            {lastSynced && syncStatus !== 'error' && (
+              <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400 font-mono-tech">
+                Last synced {new Date(lastSynced).toLocaleTimeString()}
+              </p>
+            )}
           </div>
 
           {syncKey && (
@@ -165,6 +186,12 @@ export function SyncModal({
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
               Keys are not case-sensitive.
             </p>
+            {syncKey && !isSecureSyncKey(syncKey) && (
+              <p className="text-xs text-amber-700 dark:text-amber-400 mt-1 flex items-center gap-1">
+                <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
+                Legacy keys are easier to guess. Generate a new key after all tasks are loaded on this device.
+              </p>
+            )}
             {errorMsg && <p className="text-red-500 text-sm mt-1">{errorMsg}</p>}
           </div>
 

@@ -1,10 +1,4 @@
-import { normalizeSyncKey } from '../../src/utils/sync.ts';
-
-/**
- * Cloudflare Pages Function: /api/tasks
- * Automatically executed on Cloudflare Pages when deployed!
- * Connects to Cloudflare KV namespace binding 'TASKS_KV'
- */
+import { isValidSyncKey, normalizeSyncKey } from '../../src/utils/sync.ts';
 
 interface Env {
   TASKS_KV?: {
@@ -20,91 +14,150 @@ interface EventContext {
   params: Record<string, string>;
 }
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-};
+interface StoredTask {
+  id: string;
+  title: string;
+  completed: boolean;
+  createdAt: number;
+}
 
-export async function onRequestOptions(): Promise<Response> {
-  return new Response(null, {
-    status: 204,
-    headers: CORS_HEADERS,
+const MAX_TASKS = 500;
+const MAX_PAYLOAD_BYTES = 256 * 1024;
+
+function isAllowedOrigin(request: Request): boolean {
+  const origin = request.headers.get('Origin');
+  return !origin || origin === new URL(request.url).origin;
+}
+
+function responseHeaders(request: Request): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Cache-Control': 'no-store',
+    'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+    'Content-Type': 'application/json; charset=utf-8',
+    'Permissions-Policy': 'camera=(), geolocation=(), microphone=()',
+    'Referrer-Policy': 'no-referrer',
+    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Vary': 'Origin',
+  };
+  const origin = request.headers.get('Origin');
+  if (origin && isAllowedOrigin(request)) {
+    headers['Access-Control-Allow-Origin'] = origin;
+    headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS';
+    headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type';
+  }
+  return headers;
+}
+
+function jsonResponse(request: Request, body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: responseHeaders(request),
   });
 }
 
+function getCredential(request: Request, fallback?: unknown): string {
+  const authorization = request.headers.get('Authorization');
+  const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
+  return normalizeSyncKey(bearer || (typeof fallback === 'string' ? fallback : ''));
+}
+
+function isStoredTask(value: unknown): value is StoredTask {
+  if (!value || typeof value !== 'object') return false;
+  const task = value as Partial<StoredTask>;
+  return typeof task.id === 'string'
+    && task.id.length > 0
+    && task.id.length <= 128
+    && typeof task.title === 'string'
+    && task.title.trim().length > 0
+    && task.title.length <= 500
+    && typeof task.completed === 'boolean'
+    && typeof task.createdAt === 'number'
+    && Number.isFinite(task.createdAt)
+    && task.createdAt >= 0;
+}
+
+function validateTasks(value: unknown): value is StoredTask[] {
+  return Array.isArray(value)
+    && value.length <= MAX_TASKS
+    && value.every(isStoredTask)
+    && new TextEncoder().encode(JSON.stringify(value)).byteLength <= MAX_PAYLOAD_BYTES;
+}
+
+function unavailableStorage(request: Request): Response {
+  return jsonResponse(request, { error: 'Task storage is unavailable' }, 503);
+}
+
+export async function onRequestOptions(context: EventContext): Promise<Response> {
+  if (!isAllowedOrigin(context.request)) {
+    return jsonResponse(context.request, { error: 'Cross-origin requests are not allowed' }, 403);
+  }
+  return new Response(null, { status: 204, headers: responseHeaders(context.request) });
+}
+
 export async function onRequestGet(context: EventContext): Promise<Response> {
+  if (!context.env.TASKS_KV) return unavailableStorage(context.request);
+
   const url = new URL(context.request.url);
   const requestedKey = url.searchParams.get('key')?.trim();
-
-  if (!requestedKey) {
-    return new Response(JSON.stringify({ error: 'Missing key parameter' }), {
-      status: 400,
-      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-    });
+  const key = getCredential(context.request, requestedKey);
+  if (!key || !isValidSyncKey(key)) {
+    return jsonResponse(context.request, { error: 'A valid sync credential is required' }, 401);
   }
 
-  const key = normalizeSyncKey(requestedKey);
-
   try {
-    if (context.env.TASKS_KV) {
-      let raw = await context.env.TASKS_KV.get(`tasks:${key}`);
-      if (!raw && requestedKey !== key) {
-        raw = await context.env.TASKS_KV.get(`tasks:${requestedKey}`);
-      }
-      if (raw) {
-        return new Response(raw, {
-          status: 200,
-          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-        });
-      }
+    let raw = await context.env.TASKS_KV.get(`tasks:${key}`);
+    if (!raw && requestedKey && normalizeSyncKey(requestedKey) !== requestedKey) {
+      raw = await context.env.TASKS_KV.get(`tasks:${requestedKey}`);
+    }
+    if (!raw) {
+      return jsonResponse(context.request, { tasks: [], updatedAt: Date.now() });
     }
 
-    return new Response(JSON.stringify({ tasks: [], updatedAt: Date.now() }), {
-      status: 200,
-      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+    const stored = JSON.parse(raw);
+    if (!validateTasks(stored?.tasks)) {
+      return jsonResponse(context.request, { error: 'Stored task data is invalid' }, 500);
+    }
+    return jsonResponse(context.request, {
+      tasks: stored.tasks,
+      updatedAt: typeof stored.updatedAt === 'number' ? stored.updatedAt : Date.now(),
     });
-  } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message || 'Internal Cloudflare KV error' }), {
-      status: 500,
-      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Internal task storage error';
+    return jsonResponse(context.request, { error: message }, 500);
   }
 }
 
 export async function onRequestPost(context: EventContext): Promise<Response> {
+  if (!isAllowedOrigin(context.request)) {
+    return jsonResponse(context.request, { error: 'Cross-origin requests are not allowed' }, 403);
+  }
+  if (!context.env.TASKS_KV) return unavailableStorage(context.request);
+
   try {
-    const body: any = await context.request.json();
-    const requestedKey = body?.key?.trim();
-    const tasks = body?.tasks;
-
-    if (!requestedKey || !Array.isArray(tasks)) {
-      return new Response(JSON.stringify({ error: 'Payload must contain string key and array of tasks' }), {
-        status: 400,
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-      });
+    const body: unknown = await context.request.json();
+    const record = body && typeof body === 'object' ? body as { key?: unknown; tasks?: unknown } : {};
+    const key = getCredential(context.request, record.key);
+    if (!key || !isValidSyncKey(key)) {
+      return jsonResponse(context.request, { error: 'A valid sync credential is required' }, 401);
+    }
+    if (!validateTasks(record.tasks)) {
+      return jsonResponse(context.request, {
+        error: `Tasks must contain at most ${MAX_TASKS} valid records and ${MAX_PAYLOAD_BYTES} bytes`,
+      }, 400);
     }
 
-    const key = normalizeSyncKey(requestedKey);
+    const payload = { tasks: record.tasks, updatedAt: Date.now() };
+    await context.env.TASKS_KV.put(`tasks:${key}`, JSON.stringify(payload));
 
-    const payload = {
-      key,
-      tasks,
-      updatedAt: Date.now(),
-    };
-
-    if (context.env.TASKS_KV) {
-      await context.env.TASKS_KV.put(`tasks:${key}`, JSON.stringify(payload));
-    }
-
-    return new Response(JSON.stringify({ success: true, count: tasks.length, updatedAt: payload.updatedAt }), {
-      status: 200,
-      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+    return jsonResponse(context.request, {
+      success: true,
+      count: record.tasks.length,
+      updatedAt: payload.updatedAt,
     });
-  } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message || 'Error saving to Cloudflare' }), {
-      status: 500,
-      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error saving tasks';
+    return jsonResponse(context.request, { error: message }, 500);
   }
 }

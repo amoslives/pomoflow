@@ -20,14 +20,36 @@ export function normalizeSyncKey(key: string): string {
   return typeof key === 'string' ? key.trim().toLowerCase() : '';
 }
 
+export function isSecureSyncKey(key: string): boolean {
+  return /^pf-[a-z2-7]{26}$/.test(normalizeSyncKey(key));
+}
+
 /**
  * Generates a clean, memorable sync key (e.g., 'focus-8492')
  */
 export function generateSyncKey(): string {
-  const words = ['focus', 'flow', 'retro', 'pomo', 'pixel', 'study', 'deep', 'zen'];
-  const word = words[Math.floor(Math.random() * words.length)];
-  const num = Math.floor(1000 + Math.random() * 9000);
-  return `${word}-${num}`;
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
+  let encoded = '';
+  let value = 0;
+  let bits = 0;
+
+  for (const byte of bytes) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      encoded += alphabet[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+
+  if (bits > 0) {
+    encoded += alphabet[(value << (5 - bits)) & 31];
+  }
+
+  return `pf-${encoded}`;
 }
 
 /**

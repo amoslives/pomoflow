@@ -11,7 +11,7 @@ import { AudioPlayer } from './components/AudioPlayer';
 import { SyncModal } from './components/SyncModal';
 import { WeeklyStats } from './components/WeeklyStats';
 import { Task, createTask, toggleTask, updateTaskTitle, deleteTask } from './utils/tasks';
-import { mergeTasks, isValidSyncKey } from './utils/sync';
+import { mergeTasks, isValidSyncKey, normalizeSyncKey } from './utils/sync';
 import { recordPomodoroCompletion, getSampleWeeklyStats } from './utils/stats';
 import { playWorkCompleteChime, playBreakCompleteChime, playClickSound } from './utils/audio';
 
@@ -86,10 +86,12 @@ export default function App() {
     if (typeof window !== 'undefined') {
       const urlKey = new URLSearchParams(window.location.search).get('sync');
       if (urlKey && isValidSyncKey(urlKey)) {
-        localStorage.setItem('pomodoro_sync_key', urlKey);
-        return urlKey;
+        const normalizedKey = normalizeSyncKey(urlKey);
+        localStorage.setItem('pomodoro_sync_key', normalizedKey);
+        return normalizedKey;
       }
-      return localStorage.getItem('pomodoro_sync_key') || '';
+      const storedKey = localStorage.getItem('pomodoro_sync_key') || '';
+      return isValidSyncKey(storedKey) ? normalizeSyncKey(storedKey) : '';
     }
     return '';
   });
@@ -119,13 +121,14 @@ export default function App() {
 
   // Push tasks to Cloudflare / Server
   const pushTasksToServer = useCallback(async (key: string, tasksToPush: Task[]) => {
-    if (!key || !isValidSyncKey(key)) return;
+    const normalizedKey = normalizeSyncKey(key);
+    if (!normalizedKey || !isValidSyncKey(normalizedKey)) return;
     setSyncStatus('syncing');
     try {
       const res = await fetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key, tasks: tasksToPush }),
+        body: JSON.stringify({ key: normalizedKey, tasks: tasksToPush }),
       });
       if (res.ok) {
         setSyncStatus('synced');
@@ -143,10 +146,11 @@ export default function App() {
 
   // Fetch tasks from Cloudflare / Server
   const fetchTasksFromServer = useCallback(async (key: string) => {
-    if (!key || !isValidSyncKey(key)) return;
+    const normalizedKey = normalizeSyncKey(key);
+    if (!normalizedKey || !isValidSyncKey(normalizedKey)) return;
     setSyncStatus('syncing');
     try {
-      const res = await fetch(`/api/tasks?key=${encodeURIComponent(key)}`);
+      const res = await fetch(`/api/tasks?key=${encodeURIComponent(normalizedKey)}`);
       if (res.ok) {
         const data = await res.json();
         const remoteTasks: Task[] = Array.isArray(data.tasks) ? data.tasks : [];
@@ -154,7 +158,7 @@ export default function App() {
         setTasks((currentLocal) => {
           const merged = mergeTasks(currentLocal, remoteTasks);
           if (merged.length !== remoteTasks.length) {
-            pushTasksToServer(key, merged);
+            pushTasksToServer(normalizedKey, merged);
           }
           return merged;
         });
@@ -194,9 +198,10 @@ export default function App() {
 
   // Handle changing sync key
   const handleSetSyncKey = (newKey: string) => {
-    setSyncKey(newKey);
-    localStorage.setItem('pomodoro_sync_key', newKey);
-    fetchTasksFromServer(newKey);
+    const normalizedKey = normalizeSyncKey(newKey);
+    setSyncKey(normalizedKey);
+    localStorage.setItem('pomodoro_sync_key', normalizedKey);
+    fetchTasksFromServer(normalizedKey);
   };
 
   const handleDisconnectSync = () => {

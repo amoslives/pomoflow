@@ -69,7 +69,7 @@ export function parseYouTubeSource(input: string): YouTubeSource | null {
   }
 
   // Check for video URL
-  const videoRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|live|watch)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
+  const videoRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|live|shorts|watch)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
   const videoMatch = trimmed.match(videoRegex);
   if (videoMatch && videoMatch[1]) {
     return { type: 'video', id: videoMatch[1] };
@@ -100,7 +100,7 @@ export function getNextTrackIndex(
   repeatMode: RepeatMode,
   unplayedIndices: number[] = []
 ): number {
-  if (totalTracks <= 1) return 0;
+  if (totalTracks <= 1) return repeatMode === 'off' ? -1 : 0;
 
   if (repeatMode === 'one') {
     return currentIndex;
@@ -118,14 +118,14 @@ export function getNextTrackIndex(
       const others = Array.from({ length: totalTracks }, (_, i) => i).filter((i) => i !== currentIndex);
       return others[Math.floor(Math.random() * others.length)];
     }
-    // No repeat and all played: cycle to 0 or stop
-    return (currentIndex + 1) % totalTracks;
+    // No repeat and all tracks played: stop.
+    return -1;
   }
 
   // Normal sequential
   const next = currentIndex + 1;
   if (next >= totalTracks) {
-    return repeatMode === 'all' ? 0 : currentIndex;
+    return repeatMode === 'all' ? 0 : -1;
   }
   return next;
 }

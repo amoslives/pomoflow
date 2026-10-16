@@ -97,6 +97,84 @@ input[type="range"].retro-volume-slider::-webkit-slider-thumb {
   border: 1.5px solid #f3f4f6;
 }
 
+/* Playback seek scrubber */
+input[type="range"].retro-progress-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 24px;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"].retro-progress-slider::-webkit-slider-runnable-track {
+  height: 8px;
+  border: 1px solid #6b7280;
+  background: linear-gradient(
+    to right,
+    #262626 0,
+    #262626 var(--seek-progress),
+    #9ca3af var(--seek-progress),
+    #9ca3af 100%
+  );
+}
+
+.dark input[type="range"].retro-progress-slider::-webkit-slider-runnable-track {
+  border-color: #9ca3af;
+  background: linear-gradient(
+    to right,
+    #e5e5e5 0,
+    #e5e5e5 var(--seek-progress),
+    #4b5563 var(--seek-progress),
+    #4b5563 100%
+  );
+}
+
+input[type="range"].retro-progress-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 20px;
+  margin-top: -7px;
+  border: 2px solid #1f2937;
+  border-radius: 0;
+  background: #f3f4f6;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.35);
+}
+
+.dark input[type="range"].retro-progress-slider::-webkit-slider-thumb {
+  border-color: #f3f4f6;
+  background: #262626;
+  box-shadow: 2px 2px 0 rgba(255, 255, 255, 0.2);
+}
+
+input[type="range"].retro-progress-slider:focus-visible {
+  outline: 2px solid #f97316;
+  outline-offset: 2px;
+}
+
+input[type="range"].retro-progress-slider:disabled {
+  cursor: not-allowed;
+}
+
+input[type="range"].retro-progress-slider::-moz-range-track {
+  height: 8px;
+  border: 1px solid #6b7280;
+  background: #9ca3af;
+}
+
+input[type="range"].retro-progress-slider::-moz-range-progress {
+  height: 8px;
+  background: #262626;
+}
+
+input[type="range"].retro-progress-slider::-moz-range-thumb {
+  width: 14px;
+  height: 18px;
+  border: 2px solid #1f2937;
+  border-radius: 0;
+  background: #f3f4f6;
+}
+
 @keyframes marquee {
   0% { transform: translateX(0%); }
   100% { transform: translateX(-50%); }

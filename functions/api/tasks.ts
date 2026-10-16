@@ -98,10 +98,8 @@ async function migrateLegacyRoom(
   if (!env.TASKS_DB || !env.TASKS_KV) return null;
 
   let raw = await env.TASKS_KV.get(`tasks:${credential}`);
-  let legacyStorageKey = `tasks:${credential}`;
   if (!raw && requestedKey && requestedKey !== credential) {
     raw = await env.TASKS_KV.get(`tasks:${requestedKey}`);
-    legacyStorageKey = `tasks:${requestedKey}`;
   }
   if (!raw) return null;
 
@@ -116,9 +114,9 @@ async function migrateLegacyRoom(
      VALUES (?1, ?2, 1, ?3) RETURNING revision`
   ).bind(credentialHash, JSON.stringify(tasks), updatedAt).first();
 
-  const room = await getRoom(env.TASKS_DB, credentialHash);
-  if (room) await env.TASKS_KV.delete(legacyStorageKey);
-  return room;
+  // Keep the KV source during the migration window so a deployment rollback can
+  // still read the room. D1 is authoritative as soon as this row exists.
+  return getRoom(env.TASKS_DB, credentialHash);
 }
 
 function unavailableStorage(request: Request): Response {

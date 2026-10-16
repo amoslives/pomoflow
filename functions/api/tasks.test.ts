@@ -139,7 +139,7 @@ test('task API rejects stale revisions with the latest room state', async () => 
   assert.deepEqual(conflict.tasks, [updated]);
 });
 
-test('task API migrates a legacy KV room into D1', async () => {
+test('task API migrates a legacy KV room into D1 while preserving rollback data', async () => {
   const db = new FakeD1();
   const kv = new Map([[`tasks:${credential}`, JSON.stringify({
     tasks: [{ id: 'legacy', title: 'Legacy', completed: false, createdAt: 5 }],
@@ -150,7 +150,7 @@ test('task API migrates a legacy KV room into D1', async () => {
   assert.equal(get.status, 200);
   assert.equal(body.revision, 1);
   assert.equal(body.tasks[0].updatedAt, 5);
-  assert.equal(kv.has(`tasks:${credential}`), false);
+  assert.equal(kv.has(`tasks:${credential}`), true);
 });
 
 test('task API preflight allows only its own origin', async () => {

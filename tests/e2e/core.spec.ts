@@ -29,7 +29,7 @@ test('stats start empty without manual or demo controls', async ({ page }) => {
 });
 
 test('pairing creates a fragment link and local QR code', async ({ page }) => {
-  await page.getByText('CLOUDFLARE SYNC', { exact: false }).first().click();
+  await page.getByRole('button', { name: /open sync settings/i }).click();
   await page.getByRole('button', { name: /generate secure key/i }).click();
   const key = await page.locator('input[placeholder*="my-work-tasks"]').inputValue();
   expect(key).toMatch(/^pf-[a-z2-7]{26}$/);
@@ -42,7 +42,7 @@ test('pairing creates a fragment link and local QR code', async ({ page }) => {
 });
 
 test('rotating a key revokes the old sync room', async ({ page }) => {
-  await page.getByText('CLOUDFLARE SYNC', { exact: false }).first().click();
+  await page.getByRole('button', { name: /open sync settings/i }).click();
   await page.getByRole('button', { name: /generate secure key/i }).click();
   const oldKey = await page.locator('input[placeholder*="my-work-tasks"]').inputValue();
   await page.locator('button[aria-label="Close sync modal"]').click();
@@ -53,7 +53,7 @@ test('rotating a key revokes the old sync room', async ({ page }) => {
     return (await response.json()).tasks.length;
   }).toBe(1);
 
-  await page.getByText('CLOUDFLARE:', { exact: false }).first().click();
+  await page.getByRole('button', { name: /open sync settings/i }).click();
   await page.getByRole('button', { name: /rotate secure key/i }).click();
   const keyInput = page.locator('input[placeholder*="my-work-tasks"]');
   await expect(keyInput).not.toHaveValue(oldKey);

@@ -33,4 +33,6 @@ The look is a one-bit classic desktop (menu bar, pinstriped window title bars, b
 - `.data/tasks.json` is runtime state written by `server.ts`; delete it to reset local sync data.
 - `wrangler.toml` contains the production D1 and legacy-KV binding IDs; treat it as the Pages configuration source of truth.
 - D1 schema changes belong in numbered files under `migrations/`.
+- `public/404.html` makes Cloudflare Pages return a real 404 for unknown paths; without it Pages serves `index.html` with status 200 for every path. `server.ts` production mode does the same.
+- The production URL `https://pomoflow.pages.dev/` is hard-coded in `index.html` (canonical and Open Graph tags), `public/sitemap.xml` and `public/robots.txt`. Update all three if the domain changes.
 - No env vars are required to run the app; `.env.example` documents the optional ones (`PORT`, `DISABLE_HMR`).

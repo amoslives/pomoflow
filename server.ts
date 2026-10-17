@@ -198,8 +198,9 @@ app.delete('/api/tasks', (req, res) => {
 async function startServer() {
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.join(__dirname, 'dist')));
+    // Match Cloudflare Pages: with a top-level 404.html, unknown paths get it with status 404.
     app.get('*', (_req, res) => {
-      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+      res.status(404).sendFile(path.join(__dirname, 'dist', '404.html'));
     });
   } else {
     const { createServer } = await import('vite');

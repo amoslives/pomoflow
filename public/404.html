@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Page not found | Pomoflow</title>
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/icon-apple2.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400..700&family=VT323&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --ink: #000000;
+        --paper: #ffffff;
+        --desk-a: #000000;
+        --desk-b: #ffffff;
+        color-scheme: light;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --ink: #ececec;
+          --paper: #121212;
+          --desk-a: #121212;
+          --desk-b: #3c3c3c;
+          color-scheme: dark;
+        }
+      }
+      html, body { margin: 0; min-height: 100%; }
+      body {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        box-sizing: border-box;
+        font-family: 'Pixelify Sans', 'VT323', monospace;
+        color: var(--ink);
+        background-color: var(--desk-b);
+        background-image: repeating-conic-gradient(var(--desk-a) 0 25%, var(--desk-b) 0 50%);
+        background-size: 4px 4px;
+        -webkit-font-smoothing: none;
+        line-height: 1.25;
+      }
+      .dialog {
+        max-width: 26rem;
+        padding: 20px;
+        background: var(--paper);
+        border: 2px solid var(--ink);
+        outline: 1px solid var(--ink);
+        outline-offset: 3px;
+        box-shadow: 0 0 0 3px var(--paper), 0 0 0 4px var(--ink);
+      }
+      .code { font-family: 'VT323', 'Courier New', monospace; font-size: 48px; line-height: 1; margin: 0 0 8px; }
+      p { font-size: 18px; margin: 0 0 16px; }
+      .actions { display: flex; justify-content: flex-end; }
+      .btn {
+        font: 500 18px/1 'Pixelify Sans', 'VT323', monospace;
+        color: var(--ink);
+        background: var(--paper);
+        border: 2px solid var(--ink);
+        border-radius: 7px;
+        padding: 7px 16px;
+        margin: 4px;
+        box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--ink);
+        text-decoration: none;
+      }
+      .btn:hover, .btn:focus-visible { background: var(--ink); color: var(--paper); outline: none; }
+    </style>
+  </head>
+  <body>
+    <main class="dialog">
+      <h1 class="code">404</h1>
+      <p>There is nothing at this address. Pomoflow lives on a single page.</p>
+      <div class="actions">
+        <a class="btn" href="/">Open Pomoflow</a>
+      </div>
+    </main>
+  </body>
+</html>

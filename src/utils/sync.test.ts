@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isValidSyncKey, isSecureSyncKey, normalizeSyncKey, generateSyncKey, mergeTasks } from './sync.ts';
+import { isValidSyncKey, isSecureSyncKey, normalizeSyncKey, extractSyncKey, generateSyncKey, mergeTasks } from './sync.ts';
 import { createTask, type Task } from './tasks.ts';
 
 test('isValidSyncKey accepts valid keys and rejects invalid', () => {
@@ -27,6 +27,23 @@ test('generateSyncKey produces unique high-entropy credentials', () => {
 test('normalizeSyncKey makes passphrases case-insensitive', () => {
   assert.equal(normalizeSyncKey(' LEGACY-ROOM-1234 '), 'legacy-room-1234');
   assert.equal(normalizeSyncKey('My_Secret_Key'), 'my_secret_key');
+});
+
+test('extractSyncKey accepts a bare key or a pasted pairing link', () => {
+  const key = 'pf-abcdefghijklmnopqrstuvwxyz';
+  assert.equal(extractSyncKey(` ${key} `), key);
+  assert.equal(extractSyncKey(`https://pomoflow.pages.dev/#sync=${key}`), key);
+  assert.equal(extractSyncKey(`https://pomoflow.pages.dev/?sync=${key}`), key);
+  assert.equal(extractSyncKey(`#sync=${encodeURIComponent(key)}`), key);
+  assert.equal(extractSyncKey(`sync=${key}`), key);
+  assert.equal(extractSyncKey(`https://pomoflow.pages.dev/?sync=old-room#sync=${key}`), key);
+  assert.equal(extractSyncKey(`https://pomoflow.pages.dev/#theme=dark&sync=${key}`), key);
+});
+
+test('extractSyncKey leaves input without a key for validation to reject', () => {
+  assert.equal(extractSyncKey('https://pomoflow.pages.dev/#sync='), 'https://pomoflow.pages.dev/#sync=');
+  assert.equal(extractSyncKey('https://pomoflow.pages.dev/'), 'https://pomoflow.pages.dev/');
+  assert.equal(isValidSyncKey(normalizeSyncKey(extractSyncKey('https://pomoflow.pages.dev/'))), false);
 });
 
 test('isSecureSyncKey distinguishes generated credentials from legacy passphrases', () => {

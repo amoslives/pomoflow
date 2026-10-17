@@ -161,7 +161,7 @@ export function SyncModal({
                   }`}
                 />
               )}
-              <span className="font-bold flex-shrink-0">{statusText}</span>
+              <span className={`font-bold ${syncKey ? 'flex-shrink-0' : ''}`}>{statusText}</span>
               {syncKey && <code className="font-data text-lg truncate">{syncKey}</code>}
             </div>
             {syncError && <p className="mt-1 text-base">{syncError}</p>}

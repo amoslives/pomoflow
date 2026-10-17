@@ -81,6 +81,14 @@ test('pasting a pairing link into the key field connects to its key', async ({ p
   await expect.poll(() => page.evaluate(() => localStorage.getItem('pomodoro_sync_key'))).toBe(key);
 });
 
+test('unpaired sync status stays inside its box', async ({ page }) => {
+  await page.getByRole('button', { name: /open sync settings/i }).click();
+  const status = page.getByText('Not paired. Tasks stay on this device.');
+  const text = await status.boundingBox();
+  const box = await status.locator('xpath=ancestor::div[contains(@class, "border-2")][1]').boundingBox();
+  expect(text!.x + text!.width).toBeLessThanOrEqual(box!.x + box!.width);
+});
+
 test('rotating a key revokes the old sync room', async ({ page }) => {
   await page.getByRole('button', { name: /open sync settings/i }).click();
   await page.getByRole('button', { name: /generate secure key/i }).click();

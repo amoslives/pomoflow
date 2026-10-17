@@ -54,7 +54,7 @@ test('system theme follows the OS and cycles through explicit modes', async ({ p
 test('pairing creates a fragment link and local QR code', async ({ page }) => {
   await page.getByRole('button', { name: /open sync settings/i }).click();
   await page.getByRole('button', { name: /generate secure key/i }).click();
-  const key = await page.locator('input[placeholder*="my-work-tasks"]').inputValue();
+  const key = await page.getByLabel('Sync key', { exact: true }).inputValue();
   expect(key).toMatch(/^pf-[a-z2-7]{26}$/);
   await expect(page.locator('input[readonly]')).toHaveValue(new RegExp(`#sync=${key}$`));
 
@@ -64,10 +64,35 @@ test('pairing creates a fragment link and local QR code', async ({ page }) => {
   await expect(qr).toHaveAttribute('src', /^data:image\/png;base64,/);
 });
 
+test('pasting a pairing link into the key field connects to its key', async ({ page }) => {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
+  const key = `pf-${Array.from({ length: 26 }, () => alphabet[Math.floor(Math.random() * 32)]).join('')}`;
+  await page.getByRole('button', { name: /open sync settings/i }).click();
+  const keyInput = page.getByLabel('Sync key', { exact: true });
+
+  await keyInput.fill('https://pomoflow.pages.dev/#sync=');
+  await page.getByRole('button', { name: /^connect$/i }).click();
+  await expect(page.getByRole('alert')).toContainText('Key must be');
+
+  await keyInput.fill(`https://pomoflow.pages.dev/#sync=${key.toUpperCase()}`);
+  await page.getByRole('button', { name: /^connect$/i }).click();
+  await expect(keyInput).toHaveValue(key);
+  await expect(page.getByLabel('Pairing link')).toHaveValue(new RegExp(`#sync=${key}$`));
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('pomodoro_sync_key'))).toBe(key);
+});
+
+test('unpaired sync status stays inside its box', async ({ page }) => {
+  await page.getByRole('button', { name: /open sync settings/i }).click();
+  const status = page.getByText('Not paired. Tasks stay on this device.');
+  const text = await status.boundingBox();
+  const box = await status.locator('xpath=ancestor::div[contains(@class, "border-2")][1]').boundingBox();
+  expect(text!.x + text!.width).toBeLessThanOrEqual(box!.x + box!.width);
+});
+
 test('rotating a key revokes the old sync room', async ({ page }) => {
   await page.getByRole('button', { name: /open sync settings/i }).click();
   await page.getByRole('button', { name: /generate secure key/i }).click();
-  const oldKey = await page.locator('input[placeholder*="my-work-tasks"]').inputValue();
+  const oldKey = await page.getByLabel('Sync key', { exact: true }).inputValue();
   await page.locator('button[aria-label="Close sync modal"]').click();
   await page.locator('input[placeholder*="Add a new task"]').fill('Rotation test task');
   await page.keyboard.press('Enter');
@@ -78,7 +103,7 @@ test('rotating a key revokes the old sync room', async ({ page }) => {
 
   await page.getByRole('button', { name: /open sync settings/i }).click();
   await page.getByRole('button', { name: /rotate secure key/i }).click();
-  const keyInput = page.locator('input[placeholder*="my-work-tasks"]');
+  const keyInput = page.getByLabel('Sync key', { exact: true });
   await expect(keyInput).not.toHaveValue(oldKey);
   const newKey = await keyInput.inputValue();
   expect(newKey).not.toBe(oldKey);

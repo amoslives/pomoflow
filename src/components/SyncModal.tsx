@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Cloud, Check, RefreshCw, Copy, QrCode, Share2, ShieldAlert, X, Key } from 'lucide-react';
-import { isSecureSyncKey, isValidSyncKey, normalizeSyncKey, generateSyncKey } from '../utils/sync';
+import { extractSyncKey, isSecureSyncKey, isValidSyncKey, normalizeSyncKey, generateSyncKey } from '../utils/sync';
 
 interface SyncModalProps {
   isOpen: boolean;
@@ -36,7 +36,7 @@ export function SyncModal({
 
   const handleConnect = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const normalizedKey = normalizeSyncKey(inputKey);
+    const normalizedKey = normalizeSyncKey(extractSyncKey(inputKey));
     if (!isValidSyncKey(normalizedKey)) {
       setErrorMsg('Key must be 3-32 letters, numbers, or hyphens (e.g. focus-2026)');
       return;
@@ -161,7 +161,7 @@ export function SyncModal({
                   }`}
                 />
               )}
-              <span className="font-bold flex-shrink-0">{statusText}</span>
+              <span className={`font-bold ${syncKey ? 'flex-shrink-0' : ''}`}>{statusText}</span>
               {syncKey && <code className="font-data text-lg truncate">{syncKey}</code>}
             </div>
             {syncError && <p className="mt-1 text-base">{syncError}</p>}
@@ -189,7 +189,7 @@ export function SyncModal({
                 setInputKey(e.target.value);
                 setErrorMsg('');
               }}
-              placeholder="e.g. my-work-tasks or focus-8492"
+              placeholder="Key or pairing link"
               className="field"
             />
             <button type="submit" className="btn">

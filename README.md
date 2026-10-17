@@ -16,6 +16,7 @@ A one-bit Pomodoro timer. Tasks, YouTube audio, weekly focus stats, and cross-de
 - Any YouTube video, playlist or live stream as the soundtrack, with a queue, shuffle, repeat and seeking. Playback position survives a refresh.
 - Seven-day focus stats counted from work timers that reached 00:00. Pausing or resetting does not count.
 - Light, dark and system themes in a classic desktop look. Keyboard shortcuts: `Space` start or pause, `R` reset, `D` theme.
+- Installs as an app with its own window and launcher icon: **Install** in Chrome or Edge, **Add to Dock** in Safari on a Mac, **Add to Home Screen** on iPhone and Android.
 
 <p>
   <img src="docs/screenshot-light.png" alt="Pomoflow timer window in light mode" width="49%">
@@ -32,6 +33,7 @@ There are no user accounts. Devices that share a *sync key* share one task list.
 - Pair another device by scanning the QR code or opening the pairing link. The key travels in the URL fragment (`#sync=...`), so it never reaches a server log, and it is removed from the address bar after import.
 - Tasks are stored as a revisioned document in Cloudflare D1. Local and remote lists are merged: both sides are unioned, the newer `updatedAt` wins, and a deletion wins a tie.
 - **Rotate secure key** revokes the old key and moves your tasks to a new one.
+- On iPhone and iPad, an app added to the Home Screen keeps its own storage, separate from Safari, and pairing links open in Safari. Pair it by pasting the pairing link into **Sync key**.
 
 The key is a capability. Anyone who has it can read and change that task list, so share pairing links only with devices you control and never paste one into an issue, screenshot or chat. Sync is optional. Without a key, tasks stay in the browser.
 

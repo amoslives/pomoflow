@@ -20,6 +20,22 @@ export function normalizeSyncKey(key: string): string {
   return typeof key === 'string' ? key.trim().toLowerCase() : '';
 }
 
+/**
+ * Accepts a bare key or a pasted pairing link and returns the key. Like the URL import
+ * in App.tsx, the #sync= fragment wins over a ?sync= query parameter.
+ */
+export function extractSyncKey(input: string): string {
+  const value = typeof input === 'string' ? input.trim() : '';
+  if (!value.includes('sync=')) return value;
+  const hashStart = value.indexOf('#');
+  const queryStart = value.indexOf('?');
+  const hash = hashStart >= 0 ? value.slice(hashStart + 1) : '';
+  const query = queryStart >= 0
+    ? value.slice(queryStart + 1, hashStart > queryStart ? hashStart : value.length)
+    : value;
+  return new URLSearchParams(hash).get('sync') || new URLSearchParams(query).get('sync') || value;
+}
+
 export function isSecureSyncKey(key: string): boolean {
   return /^pf-[a-z2-7]{26}$/.test(normalizeSyncKey(key));
 }

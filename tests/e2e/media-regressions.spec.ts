@@ -48,7 +48,7 @@ test.beforeEach(async ({ page }) => {
 
 test('removed current source is replaced and Play cannot resume the removed video', async ({ page }) => {
   for (const id of ['aaaaaaaaaaa', 'bbbbbbbbbbb']) {
-    await page.getByRole('button', { name: 'Audio settings and YouTube URL loader' }).click();
+    await page.getByRole('button', { name: 'Load from YouTube' }).click();
     await page.getByLabel('YouTube URL, video ID or playlist URL').fill(id);
     await page.getByLabel('Custom label for this source').fill(id === 'aaaaaaaaaaa' ? 'First' : 'Second');
     await page.getByRole('button', { name: 'Load & play' }).click();
@@ -64,7 +64,7 @@ test('removed current source is replaced and Play cannot resume the removed vide
 
 test('reused player handles playlist errors and repeat-one using the active source', async ({ page }) => {
   for (const source of ['aaaaaaaaaaa', 'PLabcdefghijklm']) {
-    await page.getByRole('button', { name: 'Audio settings and YouTube URL loader' }).click();
+    await page.getByRole('button', { name: 'Load from YouTube' }).click();
     await page.getByLabel('YouTube URL, video ID or playlist URL').fill(source);
     await page.getByRole('button', { name: 'Load & play' }).click();
   }
@@ -86,7 +86,7 @@ test('shuffle history survives insertion at the start of the queue', async ({ pa
   await page.getByRole('button', { name: 'Play music', exact: true }).click();
   await page.getByRole('button', { name: 'Enable shuffle mode' }).click();
   await page.getByRole('button', { name: 'Next track', exact: true }).click();
-  await page.getByRole('button', { name: 'Audio settings and YouTube URL loader' }).click();
+  await page.getByRole('button', { name: 'Load from YouTube' }).click();
   await page.getByLabel('YouTube URL, video ID or playlist URL').fill('ddddddddddd');
   await page.getByRole('button', { name: 'Load & play' }).click();
   await page.getByRole('button', { name: 'Next track', exact: true }).click();
@@ -94,7 +94,7 @@ test('shuffle history survives insertion at the start of the queue', async ({ pa
 });
 
 test('media bar controls stay inside the player on narrow screens', async ({ page }) => {
-  await page.getByRole('button', { name: 'Audio settings and YouTube URL loader' }).click();
+  await page.getByRole('button', { name: 'Load from YouTube' }).click();
   await page.getByLabel('YouTube URL, video ID or playlist URL').fill('aaaaaaaaaaa');
   await page.getByRole('button', { name: 'Load & play' }).click();
   const player = page.locator('section[aria-label="Music player"]');
@@ -129,7 +129,7 @@ test('media bar controls stay inside the player on narrow screens', async ({ pag
 });
 
 test('video is hidden by default and the Video toggle reveals a privacy-enhanced player', async ({ page }) => {
-  await page.getByRole('button', { name: 'Audio settings and YouTube URL loader' }).click();
+  await page.getByRole('button', { name: 'Load from YouTube' }).click();
   await page.getByLabel('YouTube URL, video ID or playlist URL').fill('aaaaaaaaaaa');
   await page.getByRole('button', { name: 'Load & play' }).click();
 
@@ -163,7 +163,7 @@ test('video is hidden by default and the Video toggle reveals a privacy-enhanced
 });
 
 test('the Video toggle keeps the same player and does not touch playback', async ({ page }) => {
-  await page.getByRole('button', { name: 'Audio settings and YouTube URL loader' }).click();
+  await page.getByRole('button', { name: 'Load from YouTube' }).click();
   await page.getByLabel('YouTube URL, video ID or playlist URL').fill('aaaaaaaaaaa');
   await page.getByRole('button', { name: 'Load & play' }).click();
   await expect(page.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
@@ -182,7 +182,7 @@ test('the Video toggle keeps the same player and does not touch playback', async
 });
 
 test('showing the video keeps the transport controls on screen', async ({ page }) => {
-  await page.getByRole('button', { name: 'Audio settings and YouTube URL loader' }).click();
+  await page.getByRole('button', { name: 'Load from YouTube' }).click();
   await page.getByLabel('YouTube URL, video ID or playlist URL').fill('aaaaaaaaaaa');
   await page.getByRole('button', { name: 'Load & play' }).click();
   const toggle = page.getByRole('button', { name: 'Show video' });
@@ -229,7 +229,7 @@ test('cued events use the new source position instead of the restored first posi
   });
   await page.reload();
   await page.getByRole('button', { name: 'Play music', exact: true }).click();
-  await page.getByRole('button', { name: 'Audio settings and YouTube URL loader' }).click();
+  await page.getByRole('button', { name: 'Load from YouTube' }).click();
   await page.getByLabel('YouTube URL, video ID or playlist URL').fill('bbbbbbbbbbb');
   await page.getByRole('button', { name: 'Load & play' }).click();
   await page.evaluate(() => (window as any).__mediaEmit(5));
@@ -237,7 +237,7 @@ test('cued events use the new source position instead of the restored first posi
 });
 
 test('YouTube playback is not paused by a visibility change', async ({ page }) => {
-  await page.getByRole('button', { name: 'Audio settings and YouTube URL loader' }).click();
+  await page.getByRole('button', { name: 'Load from YouTube' }).click();
   await page.getByLabel('YouTube URL, video ID or playlist URL').fill('aaaaaaaaaaa');
   await page.getByRole('button', { name: 'Load & play' }).click();
   await expect(page.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
@@ -251,7 +251,7 @@ test('YouTube playback is not paused by a visibility change', async ({ page }) =
 });
 
 test('playing events are accepted while the document is hidden', async ({ page }) => {
-  await page.getByRole('button', { name: 'Audio settings and YouTube URL loader' }).click();
+  await page.getByRole('button', { name: 'Load from YouTube' }).click();
   await page.getByLabel('YouTube URL, video ID or playlist URL').fill('aaaaaaaaaaa');
   await page.getByRole('button', { name: 'Load & play' }).click();
   await expect(page.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
@@ -267,7 +267,7 @@ test('playing events are accepted while the document is hidden', async ({ page }
 
 test('requested playback starts if the player becomes ready after the document is hidden', async ({ page }) => {
   await page.evaluate(() => { (window as any).__mediaDeferReady = true; });
-  await page.getByRole('button', { name: 'Audio settings and YouTube URL loader' }).click();
+  await page.getByRole('button', { name: 'Load from YouTube' }).click();
   await page.getByLabel('YouTube URL, video ID or playlist URL').fill('aaaaaaaaaaa');
   await page.getByRole('button', { name: 'Load & play' }).click();
   await expect(page.locator('#youtube-player-host iframe')).toHaveCount(1);
@@ -283,7 +283,7 @@ test('requested playback starts if the player becomes ready after the document i
 
 test('the queue advances without pausing while the document is hidden', async ({ page }) => {
   for (const id of ['aaaaaaaaaaa', 'bbbbbbbbbbb']) {
-    await page.getByRole('button', { name: 'Audio settings and YouTube URL loader' }).click();
+    await page.getByRole('button', { name: 'Load from YouTube' }).click();
     await page.getByLabel('YouTube URL, video ID or playlist URL').fill(id);
     await page.getByRole('button', { name: 'Load & play' }).click();
     await expect(page.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
@@ -306,7 +306,7 @@ const setVisibility = (page: Page, value: 'hidden' | 'visible') => page.evaluate
 }, value);
 
 const playSource = async (page: Page) => {
-  await page.getByRole('button', { name: 'Audio settings and YouTube URL loader' }).click();
+  await page.getByRole('button', { name: 'Load from YouTube' }).click();
   await page.getByLabel('YouTube URL, video ID or playlist URL').fill('aaaaaaaaaaa');
   await page.getByRole('button', { name: 'Load & play' }).click();
   await expect(page.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
@@ -392,4 +392,32 @@ test('Play after a reset continues from the last position', async ({ page }) => 
   await expect(page.getByText('01:15', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Play music', exact: true }).click();
   expect(await mediaCalls(page)).toEqual([['seek', 75], ['play', 'aaaaaaaaaaa']]);
+});
+
+test('the Stats tab shows a slim player that keeps the music playing', async ({ page }) => {
+  await page.getByRole('button', { name: 'Load from YouTube' }).click();
+  await page.getByLabel('YouTube URL, video ID or playlist URL').fill('aaaaaaaaaaa');
+  await page.getByRole('button', { name: 'Load & play' }).click();
+  await page.getByRole('button', { name: 'Show video' }).click();
+  const player = page.locator('section[aria-label="Music player"]');
+  await expect(player.locator('iframe')).toBeVisible();
+  await expect(player.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
+  await page.evaluate(() => { (window as any).__mediaCalls.length = 0; });
+
+  await page.getByRole('button', { name: 'Stats', exact: true }).click();
+  await expect(player.locator('[aria-live="polite"]')).toContainText('aaaaaaaaaaa');
+  await expect(page.locator('#youtube-player-host')).toHaveJSProperty('offsetHeight', 0);
+  await expect(player.getByRole('slider')).toHaveCount(0);
+  for (const name of ['Load from YouTube', 'Toggle playlist and queue', 'Show video']) {
+    await expect(player.getByRole('button', { name })).toHaveCount(0);
+  }
+  await player.getByRole('button', { name: 'Pause music', exact: true }).click();
+  await player.getByRole('button', { name: 'Play music', exact: true }).click();
+
+  await page.getByRole('button', { name: 'Timer', exact: true }).click();
+  await expect(player.locator('iframe')).toBeVisible();
+  await expect(player.getByRole('button', { name: 'Toggle playlist and queue' })).toBeVisible();
+  expect(await page.evaluate(() => ({ players: (window as any).__playerCount, calls: (window as any).__mediaCalls }))).toEqual({
+    players: 1, calls: [['pause', 'aaaaaaaaaaa'], ['play', 'aaaaaaaaaaa']],
+  });
 });

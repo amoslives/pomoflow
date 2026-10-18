@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 const temporary = await mkdtemp(join(tmpdir(), 'pomoflow-capture-'));
 const browser = await chromium.launch();
 try {
-  const page = await browser.newPage({ viewport: { width: 1000, height: 1080 }, colorScheme: 'light' });
+  const page = await browser.newPage({ viewport: { width: 1000, height: 1180 }, colorScheme: 'light' });
   let encrypted = null;
   let revision = 0;
   await page.route('**/api/tasks', async route => {
@@ -45,7 +45,7 @@ try {
   await page.getByRole('button', { name: /^start$/i }).click();
   await frame();
   await page.getByRole('button', { name: /^pause$/i }).click();
-  await page.getByRole('button', { name: 'Audio settings and YouTube URL loader' }).click();
+  await page.getByRole('button', { name: 'Load from YouTube' }).click();
   await frame();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'Stats', exact: true }).click();

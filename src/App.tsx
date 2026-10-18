@@ -89,7 +89,7 @@ export default function App() {
             </Suspense>}
           </div>
         </main>
-        <AudioPlayer />
+        <AudioPlayer compact={activeTab === 'stats'} />
         <footer className="mt-5 flex justify-center">
           <p className="statusline select-none">
             <span className="hidden sm:inline">Space start/pause &nbsp; R reset &nbsp; D theme &nbsp;|&nbsp; </span>

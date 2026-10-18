@@ -13,7 +13,7 @@ A one-bit Pomodoro timer. Tasks, optional YouTube playback, weekly focus stats, 
 
 - Work and break timers with a completion chime and best-effort browser notifications. Countdown uses an absolute deadline and survives refresh, pause and app relaunch. Suspended browsers catch up when they resume; they cannot guarantee an alarm while suspended. Only the session actually started earns credit, then the next cycle begins.
 - A task list that syncs between your devices. Pair a device by scanning a QR code or opening a link. There is no sign-up.
-- YouTube videos, playlists and live streams in a visible player, with a queue, shuffle, repeat and seeking. Playback position survives a refresh. Playback pauses when the tab is hidden.
+- YouTube videos, playlists and live streams, with a queue, shuffle, repeat and seeking. The video is hidden by default so playback runs from the media bar alone; press **Video** to show the player. Playback position survives a refresh, and music keeps playing when you switch to another app unless the browser or YouTube pauses it.
 - Seven-day focus stats counted from work timers that reached 00:00. Pausing or resetting does not count.
 - Light, dark and system themes in a classic desktop look. Keyboard shortcuts: `Space` start or pause, `R` reset, `D` theme.
 - Installs as an app with its own window and launcher icon: **Install** in Chrome or Edge, **Add to Dock** in Safari on a Mac, **Add to Home Screen** on iPhone and Android.

@@ -913,7 +913,7 @@ export function AudioPlayer() {
                 Cancel
               </button>
             </div>
-            <p className="dim text-base mt-2">Playing connects to YouTube, which may collect playback data and use cookies. The video stays hidden unless you press Video in the player bar. Playback continues while you work in another app unless the browser or YouTube pauses it.</p>
+            <p className="dim text-base mt-2">Playing connects to YouTube, which may collect data and cookies.</p>
           </form>
         )}
 

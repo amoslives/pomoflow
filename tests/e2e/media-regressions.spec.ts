@@ -12,14 +12,15 @@ test.beforeEach(async ({ page }) => {
         let playlist = config.playerVars.list ? ['playlist-first', 'playlist-next'] : [];
         let index = playlist.length ? 0 : -1;
         let time = config.playerVars.start || 0;
+        let state = -1;
         const frame = document.createElement('iframe');
         frame.width = config.width; frame.height = config.height;
         frame.title = 'YouTube video player'; element.replaceWith(frame);
         (window as any).__mediaConfig = config;
-        const emit = (data: number) => config.events.onStateChange({ data, target: player });
+        const emit = (data: number) => { state = data; config.events.onStateChange({ data, target: player }); };
         const player = {
           setVolume() {}, setLoop() {}, setShuffle() {}, mute() {}, unMute() {},
-          getDuration: () => 120, getCurrentTime: () => time, getPlayerState: () => 2,
+          getDuration: () => 120, getCurrentTime: () => time, getPlayerState: () => state,
           getVideoData: () => ({ title: video, isLive: false }),
           getPlaylist: () => playlist, getPlaylistIndex: () => index,
           playVideo() { calls.push(['play', video]); emit(1); },
@@ -34,6 +35,7 @@ test.beforeEach(async ({ page }) => {
           destroy() { frame.remove(); },
         };
         (window as any).__mediaEmit = emit;
+        (window as any).__mediaSetTime = (seconds: number) => { time = seconds; };
         (window as any).__mediaError = () => config.events.onError({ data: 100, target: player });
         (window as any).__mediaReady = () => config.events.onReady({ target: player });
         if (!(window as any).__mediaDeferReady) setTimeout((window as any).__mediaReady, 0);
@@ -356,4 +358,38 @@ test('music paused before leaving, or paused later, stays paused', async ({ page
   await page.evaluate(() => (window as any).__mediaEmit(2));
   expect(await mediaCalls(page)).toEqual([]);
   await expect(page.getByRole('button', { name: 'Play music', exact: true })).toBeVisible();
+});
+
+test('a player iOS reset in the background resumes from the last position, not from zero', async ({ page }) => {
+  await playSource(page);
+  await page.evaluate(() => (window as any).__mediaSetTime(75));
+  await expect(page.getByText('01:15', { exact: true })).toBeVisible();
+
+  // iOS tears the video down: YouTube reports a cued video at 0
+  await setVisibility(page, 'hidden');
+  await page.evaluate(() => { (window as any).__mediaSetTime(0); (window as any).__mediaEmit(5); });
+  await expect(page.getByRole('button', { name: 'Play music', exact: true })).toBeVisible();
+  await expect(page.getByText('01:15', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('pomodoro_music_playback')!).position)).toBe(75);
+
+  await setVisibility(page, 'visible');
+  expect(await mediaCalls(page)).toEqual([['seek', 75], ['play', 'aaaaaaaaaaa']]);
+  await expect(page.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
+});
+
+test('Play after a reset continues from the last position', async ({ page }) => {
+  await playSource(page);
+  await page.evaluate(() => (window as any).__mediaSetTime(75));
+  await expect(page.getByText('01:15', { exact: true })).toBeVisible();
+
+  // An unstarted player reports 0 while the app still shows it playing
+  await page.evaluate(() => { (window as any).__mediaSetTime(0); (window as any).__mediaEmit(-1); });
+  await page.waitForTimeout(1500);
+  await expect(page.getByText('01:15', { exact: true })).toBeVisible();
+
+  await page.evaluate(() => (window as any).__mediaEmit(5));
+  await expect(page.getByRole('button', { name: 'Play music', exact: true })).toBeVisible();
+  await expect(page.getByText('01:15', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Play music', exact: true }).click();
+  expect(await mediaCalls(page)).toEqual([['seek', 75], ['play', 'aaaaaaaaaaa']]);
 });

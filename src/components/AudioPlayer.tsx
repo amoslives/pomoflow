@@ -176,6 +176,11 @@ export function AudioPlayer() {
   settingsRef.current = { volume, isMuted, isShuffle, repeatMode };
   const showVideoRef = useRef(showVideo);
   showVideoRef.current = showVideo;
+  const isPlayingRef = useRef(isPlaying);
+  isPlayingRef.current = isPlaying;
+  const wasPlayingWhenHiddenRef = useRef(false);
+  // Until this time, a pause from YouTube is the system's background pause arriving late
+  const resumeLatePauseUntilRef = useRef(0);
   const transportRef = useRef<HTMLDivElement>(null);
 
   const currentTrack: TrackItem | undefined = queue[currentTrackIndex];
@@ -232,6 +237,29 @@ export function AudioPlayer() {
   useEffect(() => () => {
     try { ytPlayerRef.current?.destroy?.(); } catch {}
     ytPlayerRef.current = null;
+  }, []);
+
+  // iOS pauses home-screen web apps in the background. Resume on return if music was playing when the app was left.
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        wasPlayingWhenHiddenRef.current = isPlayingRef.current;
+        resumeLatePauseUntilRef.current = 0;
+        return;
+      }
+      if (!wasPlayingWhenHiddenRef.current) return;
+      wasPlayingWhenHiddenRef.current = false;
+      if (isPlayingRef.current) {
+        // The pause can be delivered just after the app is visible again
+        resumeLatePauseUntilRef.current = Date.now() + 2000;
+        return;
+      }
+      try {
+        if (ytPlayerRef.current?.getPlayerState?.() === 2) ytPlayerRef.current.playVideo();
+      } catch {}
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
 
   // Update volume
@@ -483,6 +511,10 @@ export function AudioPlayer() {
         } catch {}
       } else if (event.data === 2) {
         setIsPlaying(false);
+        if (Date.now() < resumeLatePauseUntilRef.current) {
+          resumeLatePauseUntilRef.current = 0;
+          event.target.playVideo();
+        }
       } else if (event.data === 5) {
         const startSeconds = Math.max(0, activeSourceRef.current.options.startSeconds || 0);
         setIsPlaying(false);
@@ -674,6 +706,7 @@ export function AudioPlayer() {
     }
 
     if (isPlaying) {
+      resumeLatePauseUntilRef.current = 0;
       if (ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
         try {
           ytPlayerRef.current.pauseVideo();
@@ -706,6 +739,7 @@ export function AudioPlayer() {
 
   // Stop Playback
   const handleStop = () => {
+    resumeLatePauseUntilRef.current = 0;
     if (ytPlayerRef.current && typeof ytPlayerRef.current.stopVideo === 'function') {
       try {
         ytPlayerRef.current.stopVideo();

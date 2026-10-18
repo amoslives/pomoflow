@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 test.beforeEach(async ({ page }) => {
   await page.route('https://www.youtube.com/oembed**', route => route.fulfill({ json: { title: 'Test video', author_name: 'Test' } }));
@@ -296,4 +296,64 @@ test('the queue advances without pausing while the document is hidden', async ({
     ['load', 'aaaaaaaaaaa'], ['play', 'aaaaaaaaaaa'],
   ]);
   await expect(page.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
+});
+
+const setVisibility = (page: Page, value: 'hidden' | 'visible') => page.evaluate(state => {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value: state });
+  document.dispatchEvent(new Event('visibilitychange'));
+}, value);
+
+const playSource = async (page: Page) => {
+  await page.getByRole('button', { name: 'Audio settings and YouTube URL loader' }).click();
+  await page.getByLabel('YouTube URL, video ID or playlist URL').fill('aaaaaaaaaaa');
+  await page.getByRole('button', { name: 'Load & play' }).click();
+  await expect(page.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
+  await page.evaluate(() => { (window as any).__mediaCalls.length = 0; });
+};
+
+const mediaCalls = (page: Page) => page.evaluate(() => (window as any).__mediaCalls);
+
+test('music the system paused in the background resumes on return', async ({ page }) => {
+  await playSource(page);
+  await setVisibility(page, 'hidden');
+  await page.evaluate(() => (window as any).__mediaEmit(2));
+  await expect(page.getByRole('button', { name: 'Play music', exact: true })).toBeVisible();
+  await setVisibility(page, 'visible');
+  expect(await mediaCalls(page)).toEqual([['play', 'aaaaaaaaaaa']]);
+  await expect(page.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
+});
+
+test('a background pause delivered just after return also resumes', async ({ page }) => {
+  await playSource(page);
+  await setVisibility(page, 'hidden');
+  await setVisibility(page, 'visible');
+  expect(await mediaCalls(page)).toEqual([]);
+  await page.evaluate(() => (window as any).__mediaEmit(2));
+  expect(await mediaCalls(page)).toEqual([['play', 'aaaaaaaaaaa']]);
+  await expect(page.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
+
+  // The user's own pause right after returning is respected
+  await setVisibility(page, 'hidden');
+  await setVisibility(page, 'visible');
+  await page.getByRole('button', { name: 'Pause music', exact: true }).click();
+  expect(await mediaCalls(page)).toEqual([['play', 'aaaaaaaaaaa'], ['pause', 'aaaaaaaaaaa']]);
+  await expect(page.getByRole('button', { name: 'Play music', exact: true })).toBeVisible();
+});
+
+test('music paused before leaving, or paused later, stays paused', async ({ page }) => {
+  await playSource(page);
+  await page.getByRole('button', { name: 'Pause music', exact: true }).click();
+  await setVisibility(page, 'hidden');
+  await setVisibility(page, 'visible');
+  expect(await mediaCalls(page)).toEqual([['pause', 'aaaaaaaaaaa']]);
+  await expect(page.getByRole('button', { name: 'Play music', exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Play music', exact: true }).click();
+  await page.evaluate(() => { (window as any).__mediaCalls.length = 0; });
+  await setVisibility(page, 'hidden');
+  await setVisibility(page, 'visible');
+  await page.waitForTimeout(2100);
+  await page.evaluate(() => (window as any).__mediaEmit(2));
+  expect(await mediaCalls(page)).toEqual([]);
+  await expect(page.getByRole('button', { name: 'Play music', exact: true })).toBeVisible();
 });

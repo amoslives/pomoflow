@@ -22,6 +22,14 @@ export function getStrokeDashoffset(progressPercent: number, circumference: numb
   return circumference - (safePercent / 100) * circumference;
 }
 
+/**
+ * Seconds left until endsAt, rounded up so the display never shows 00:00 early.
+ * Tabs throttle timers, so the countdown must be derived from the clock, not ticks.
+ */
+export function secondsRemaining(endsAt: number, now: number = Date.now()): number {
+  return Math.max(0, Math.ceil((endsAt - now) / 1000));
+}
+
 export function parseYouTubeId(input: string): string | null {
   if (!input || typeof input !== 'string') return null;
   const trimmed = input.trim();

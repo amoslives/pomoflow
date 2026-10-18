@@ -19,14 +19,6 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('Pomoflow render failure', error, info.componentStack);
   }
 
-  private resetLocalData = () => {
-    for (let index = localStorage.length - 1; index >= 0; index -= 1) {
-      const key = localStorage.key(index);
-      if (key?.startsWith('pomodoro_')) localStorage.removeItem(key);
-    }
-    window.location.reload();
-  };
-
   render() {
     if (!this.state.failed) return this.props.children;
     return (
@@ -34,10 +26,10 @@ export class ErrorBoundary extends Component<Props, State> {
         <div className="dialog max-w-lg p-6 text-center">
           <h1 className="text-2xl font-bold">Pomoflow could not load</h1>
           <p className="mt-2 text-lg">
-            The data saved in this browser is invalid, or the app hit an unexpected error. Resetting the local data clears tasks and stats stored on this device.
+            The app hit an unexpected error. Your saved tasks and stats are still on this device. Try reloading.
           </p>
-          <button type="button" onClick={this.resetLocalData} className="btn btn-default mt-5">
-            Reset local data
+          <button type="button" onClick={() => window.location.reload()} className="btn btn-default mt-5">
+            Reload
           </button>
         </div>
       </main>

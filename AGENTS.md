@@ -13,14 +13,14 @@ React 19 + Vite + Tailwind v4 Pomodoro timer SPA. One backend API (`/api/tasks`)
 
 - Use npm, not bun; `package-lock.json` is the only supported lockfile.
 
-## Dual backend — keep both in sync
+## Shared API handler
 
-`/api/tasks` has two implementations that must stay behaviorally identical:
+`/api/tasks` executes `functions/api/tasks.ts` in both environments:
 
-- `server.ts` — local dev (Express, persists to `.data/tasks.json`)
-- `functions/api/tasks.ts` — Cloudflare Pages Function using D1 binding `TASKS_DB`; `TASKS_KV` is retained only to migrate legacy rooms on first access.
+- `server.ts` adapts Express requests and uses `tooling/local-database.ts` to execute the D1 SQL in `.data/tasks.sqlite`.
+- Cloudflare Pages uses D1 binding `TASKS_DB`; `TASKS_KV` holds legacy recovery sources and entries are deleted after migration.
 
-The frontend calls the relative path `/api/tasks` (`src/App.tsx`), so it works against either. When changing the API shape, update both implementations plus `src/utils/sync.ts`.
+The frontend calls `/api/tasks` from `src/hooks/useTaskSync.ts`. Protocol changes also belong in `src/utils/sync.ts`. New rooms contain AES-GCM ciphertext; only the derived bearer credential reaches the server. Pending edits are rebased onto authoritative snapshots, so deletion history does not accumulate. Keep revocation hashes permanent. API tests execute real SQLite migrations and SQL.
 
 ## UI conventions
 
@@ -30,7 +30,8 @@ The look is a one-bit classic desktop (menu bar, pinstriped window title bars, b
 
 - The `@` path alias maps to the **repo root**, not `src/`.
 - `vite.config.ts` `DISABLE_HMR` logic is marked "Do not modify" — leave it as is.
-- `.data/tasks.json` is runtime state written by `server.ts`; delete it to reset local sync data.
+- `.data/tasks.sqlite` is local runtime state. `server.ts` imports `.data/tasks.json` once and retains that old file as a backup.
+- Timer state and focus credit share the atomic `pomodoro_session_v2` local-storage record. Completion effects stay outside React state updaters.
 - `wrangler.toml` contains the production D1 and legacy-KV binding IDs; treat it as the Pages configuration source of truth.
 - D1 schema changes belong in numbered files under `migrations/`.
 - `public/404.html` makes Cloudflare Pages return a real 404 for unknown paths; without it Pages serves `index.html` with status 200 for every path. `server.ts` production mode does the same.

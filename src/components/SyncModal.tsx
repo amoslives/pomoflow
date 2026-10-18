@@ -38,7 +38,7 @@ export function SyncModal({
     if (e) e.preventDefault();
     const normalizedKey = normalizeSyncKey(extractSyncKey(inputKey));
     if (!isValidSyncKey(normalizedKey)) {
-      setErrorMsg('Key must be 3-32 letters, numbers, or hyphens (e.g. focus-2026)');
+      setErrorMsg('Key must be a generated encrypted key (pf2-…), or a pairing link from an updated device.');
       return;
     }
     setErrorMsg('');
@@ -50,8 +50,7 @@ export function SyncModal({
     const newKey = generateSyncKey();
     setErrorMsg('');
     let changed = true;
-    if (syncKey) changed = await onRotateSyncKey(newKey);
-    else onSetSyncKey(newKey);
+    changed = await onRotateSyncKey(newKey);
     if (changed) setInputKey(newKey);
   };
 
@@ -63,6 +62,8 @@ export function SyncModal({
     setShowQr(false);
     setQrDataUrl('');
   }, [shareableUrl]);
+
+  useEffect(() => { setInputKey(syncKey); }, [syncKey]);
 
   if (!isOpen) return null;
 
@@ -196,17 +197,17 @@ export function SyncModal({
               {syncKey === inputKey.trim() && syncKey ? 'Update' : 'Connect'}
             </button>
           </div>
-          <p className="text-base dim mt-1">Anyone with this key can read and change these tasks. Keys are not case-sensitive.</p>
+          <p className="text-base dim mt-1">Tasks are encrypted on your device. Anyone with this key can read and change them. Keys are not case-sensitive.</p>
           {syncKey && !isSecureSyncKey(syncKey) && (
             <p className="text-base mt-1 flex items-start gap-1.5">
               <ShieldAlert className="w-4 h-4 mt-0.5 flex-shrink-0" strokeWidth={2.5} />
-              <span>This key is easy to guess. Once every device has loaded its tasks, generate a secure key.</span>
+              <span>Legacy sync is paused. Rotate to an encrypted key. Weak legacy keys can migrate only tasks already on this device.</span>
             </p>
           )}
           {errorMsg && <p className="text-base mt-1 font-bold" role="alert">{errorMsg}</p>}
 
           <div className="flex flex-wrap items-center gap-2 mt-3">
-            <button type="button" onClick={handleGenerate} className="btn btn-sm">
+            <button type="button" onClick={handleGenerate} disabled={syncStatus === 'syncing'} className="btn btn-sm">
               <Key className="w-4 h-4" strokeWidth={2.5} />
               <span>{syncKey ? 'Rotate secure key' : 'Generate secure key'}</span>
             </button>
@@ -216,10 +217,11 @@ export function SyncModal({
               </button>
             )}
           </div>
+          {syncKey && <p className="text-base dim mt-2">Rotating permanently revokes the old link. Pair every other device again with the new link.</p>}
         </form>
 
         {/* Pairing */}
-        {syncKey && (
+        {isSecureSyncKey(syncKey) && (
           <div className="groupbox mt-6">
             <div className="groupbox-label">Pair another device</div>
             <input
@@ -255,7 +257,7 @@ export function SyncModal({
                 <p className="mt-2 text-base dim text-center">Point the other device's camera at this.</p>
               </div>
             )}
-            <p className="text-base dim mt-2">Open the link on your phone or another computer and the tasks pair automatically.</p>
+            <p className="text-base dim mt-2">Open the link on your other device and confirm which tasks to share.</p>
           </div>
         )}
       </div>

@@ -37,7 +37,7 @@ export function updateTaskTitle(tasks: Task[], id: string, newTitle: string, now
 
 export function deleteTask(tasks: Task[], id: string, now: number = Date.now()): Task[] {
   return tasks.map((task) =>
-    task.id === id ? { ...task, updatedAt: now, deletedAt: now } : task
+    task.id === id ? { ...task, title: '', updatedAt: now, deletedAt: now } : task
   );
 }
 
@@ -51,7 +51,7 @@ export function normalizeTasks(value: unknown): Task[] {
       typeof task.id !== 'string'
       || !task.id
       || typeof task.title !== 'string'
-      || !task.title.trim()
+      || (!task.title.trim() && typeof task.deletedAt !== 'number')
       || typeof task.completed !== 'boolean'
       || typeof task.createdAt !== 'number'
       || !Number.isFinite(task.createdAt)

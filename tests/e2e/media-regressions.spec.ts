@@ -7,6 +7,7 @@ test.beforeEach(async ({ page }) => {
     (window as any).__mediaCalls = calls;
     window.YT = {
       Player: function (element: HTMLElement, config: any) {
+        (window as any).__playerCount = ((window as any).__playerCount ?? 0) + 1;
         let video = config.videoId || 'playlist-first';
         let playlist = config.playerVars.list ? ['playlist-first', 'playlist-next'] : [];
         let index = playlist.length ? 0 : -1;
@@ -118,7 +119,7 @@ test('media bar controls stay inside the player on narrow screens', async ({ pag
     }
     await page.getByRole('button', { name: 'Show video' }).click();
     await expect(player.locator('iframe')).toBeVisible();
-    await page.getByRole('button', { name: 'Hide video' }).click();
+    await page.getByRole('button', { name: 'Show video' }).click();
     await page.getByRole('button', { name: 'Toggle playlist and queue' }).click();
     await expect(page.getByText('Current Playlist & Queue (1)', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Close queue' }).click();
@@ -131,24 +132,90 @@ test('video is hidden by default and the Video toggle reveals a privacy-enhanced
   await page.getByRole('button', { name: 'Load & play' }).click();
 
   const host = page.locator('#youtube-player-host');
+  const toggle = page.getByRole('button', { name: 'Show video' });
   await expect(host.locator('iframe')).toHaveCount(1);
   expect((await host.boundingBox())?.height ?? 0).toBeLessThanOrEqual(1);
-  expect(await page.getByRole('button', { name: 'Show video' }).getAttribute('aria-pressed')).toBe('false');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(host).toHaveJSProperty('inert', true);
+  await expect(host).toHaveAttribute('aria-hidden', 'true');
 
-  await page.getByRole('button', { name: 'Show video' }).click();
+  await toggle.click();
   const frame = host.locator('iframe');
   await expect(frame).toBeVisible();
   const box = await frame.boundingBox();
   expect(box!.width).toBeGreaterThanOrEqual(200);
   expect(box!.height).toBeGreaterThanOrEqual(200);
   expect(await page.evaluate(() => (window as any).__mediaConfig.host)).toBe('https://www.youtube-nocookie.com');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(host).toHaveJSProperty('inert', false);
+  await expect(host).toHaveAttribute('aria-hidden', 'false');
 
-  await page.getByRole('button', { name: 'Hide video' }).click();
+  await toggle.click();
   expect((await host.boundingBox())?.height ?? 0).toBeLessThanOrEqual(1);
+  await expect(host).toHaveJSProperty('inert', true);
+  await expect(host).toHaveAttribute('aria-hidden', 'true');
   await page.getByRole('button', { name: 'Pause music', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Play music', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Play music', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
+});
+
+test('the Video toggle keeps the same player and does not touch playback', async ({ page }) => {
+  await page.getByRole('button', { name: 'Audio settings and YouTube URL loader' }).click();
+  await page.getByLabel('YouTube URL, video ID or playlist URL').fill('aaaaaaaaaaa');
+  await page.getByRole('button', { name: 'Load & play' }).click();
+  await expect(page.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
+  const frame = page.locator('#youtube-player-host iframe');
+  await frame.evaluate(element => { (element as any).__original = true; });
+
+  const toggle = page.getByRole('button', { name: 'Show video' });
+  for (const pressed of ['true', 'false', 'true']) {
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', pressed);
+  }
+  expect(await page.evaluate(() => (window as any).__playerCount)).toBe(1);
+  expect(await page.evaluate(() => (document.querySelector('#youtube-player-host iframe') as any)?.__original)).toBe(true);
+  expect(await page.evaluate(() => (window as any).__mediaCalls)).toEqual([['play', 'aaaaaaaaaaa']]);
+  await expect(page.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
+});
+
+test('showing the video keeps the transport controls on screen', async ({ page }) => {
+  await page.getByRole('button', { name: 'Audio settings and YouTube URL loader' }).click();
+  await page.getByLabel('YouTube URL, video ID or playlist URL').fill('aaaaaaaaaaa');
+  await page.getByRole('button', { name: 'Load & play' }).click();
+  const toggle = page.getByRole('button', { name: 'Show video' });
+  // At the bottom edge the opened video pushes the controls furthest off screen
+  await toggle.evaluate(element => element.scrollIntoView({ block: 'end' }));
+  await toggle.click();
+  await expect(page.locator('#youtube-player-host iframe')).toBeVisible();
+  await expect(toggle).toBeInViewport({ ratio: 1 });
+  await expect(page.getByRole('button', { name: 'Pause music', exact: true })).toBeInViewport({ ratio: 1 });
+});
+
+test('the Video toggle is unavailable until YouTube has a track to show', async ({ page }) => {
+  const toggle = page.getByRole('button', { name: 'Show video' });
+  const host = page.locator('#youtube-player-host');
+  await expect(toggle).toBeDisabled();
+
+  await page.evaluate(() => {
+    localStorage.setItem('pomodoro_music_queue', JSON.stringify([
+      { id: 'first', title: 'First', sourceType: 'youtube-video', youtubeId: 'aaaaaaaaaaa' },
+    ]));
+  });
+  await page.reload();
+  // A restored queue does not load YouTube until Play is pressed
+  await expect(toggle).toBeDisabled();
+  await page.getByRole('button', { name: 'Play music', exact: true }).click();
+  await expect(toggle).toBeEnabled();
+  await toggle.click();
+  await expect(host.locator('iframe')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Toggle playlist and queue' }).click();
+  await page.getByRole('button', { name: 'Remove First' }).click();
+  await expect(toggle).toBeDisabled();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(host).toHaveJSProperty('inert', true);
+  await expect(host).toHaveCSS('margin-bottom', '0px');
 });
 
 test('cued events use the new source position instead of the restored first position', async ({ page }) => {

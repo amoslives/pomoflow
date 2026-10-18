@@ -176,8 +176,12 @@ export function AudioPlayer() {
   settingsRef.current = { volume, isMuted, isShuffle, repeatMode };
   const showVideoRef = useRef(showVideo);
   showVideoRef.current = showVideo;
+  const transportRef = useRef<HTMLDivElement>(null);
 
   const currentTrack: TrackItem | undefined = queue[currentTrackIndex];
+  // There is no video to show until YouTube has loaded a track
+  const hasVideo = youtubeEnabled && Boolean(currentTrack);
+  const isVideoShown = showVideo && hasVideo;
 
   useEffect(() => {
     queueRef.current = queue;
@@ -732,6 +736,8 @@ export function AudioPlayer() {
     if (next) {
       window.requestAnimationFrame(() => {
         document.getElementById('youtube-player-host')?.scrollIntoView({ block: 'nearest' });
+        // The video pushes the controls down; keep them on screen if both do not fit
+        transportRef.current?.scrollIntoView({ block: 'nearest' });
       });
     }
   };
@@ -873,9 +879,9 @@ export function AudioPlayer() {
       <div className="window-body !pt-3 !pb-3">
         <div
           id="youtube-player-host"
-          className={`w-full overflow-hidden ${showVideo ? 'mb-3' : 'h-0'}`}
-          inert={!showVideo}
-          aria-hidden={!showVideo}
+          className={`w-full overflow-hidden ${isVideoShown ? 'mb-3' : 'h-0'}`}
+          inert={!isVideoShown}
+          aria-hidden={!isVideoShown}
         />
         {/* Load panel */}
         {showSettings && (
@@ -907,7 +913,7 @@ export function AudioPlayer() {
                 Cancel
               </button>
             </div>
-            <p className="dim text-base mt-2">Playing connects to YouTube, which may collect playback data and use cookies. The video stays hidden unless you press Video in the player bar, and playback continues while you work in another app.</p>
+            <p className="dim text-base mt-2">Playing connects to YouTube, which may collect playback data and use cookies. The video stays hidden unless you press Video in the player bar. Playback continues while you work in another app unless the browser or YouTube pauses it.</p>
           </form>
         )}
 
@@ -1080,7 +1086,7 @@ export function AudioPlayer() {
         </div>
 
         {/* Transport */}
-        <div className="flex flex-wrap items-center gap-2 mt-3">
+        <div ref={transportRef} className="flex flex-wrap items-center gap-2 mt-3">
           <div className="flex items-center gap-1">
             <button type="button" onClick={handlePrevTrack} aria-label="Previous track" title="Previous track" className="btn btn-icon">
               <SkipBack className="fill-current" />
@@ -1145,12 +1151,13 @@ export function AudioPlayer() {
             <button
               type="button"
               onClick={handleToggleVideo}
-              aria-label={showVideo ? 'Hide video' : 'Show video'}
-              aria-pressed={showVideo}
-              title={showVideo ? 'Video: shown' : 'Video: hidden'}
+              disabled={!hasVideo}
+              aria-label="Show video"
+              aria-pressed={isVideoShown}
+              title={isVideoShown ? 'Video: shown' : 'Video: hidden'}
               className="btn btn-sm ml-1"
             >
-              {showVideo ? <Video className="w-4 h-4" strokeWidth={2.5} /> : <VideoOff className="w-4 h-4" strokeWidth={2.5} />}
+              {isVideoShown ? <Video className="w-4 h-4" strokeWidth={2.5} /> : <VideoOff className="w-4 h-4" strokeWidth={2.5} />}
               <span>Video</span>
             </button>
             <button

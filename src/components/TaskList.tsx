@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Check, SquarePen, Trash2, Cloud, CloudOff, RefreshCw, X } from 'lucide-react';
 import { Task, partitionTasks } from '../utils/tasks';
+import { MAX_TASK_TITLE_LENGTH } from '../utils/sync';
 
 interface TaskListProps {
   tasks: Task[];
@@ -84,6 +85,7 @@ export function TaskList({
         <input
           type="text"
           name="new-task"
+          maxLength={MAX_TASK_TITLE_LENGTH}
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
           placeholder="Add a new task..."
@@ -106,6 +108,7 @@ export function TaskList({
                   <input
                     type="text"
                     name="edit-task-title"
+                    maxLength={MAX_TASK_TITLE_LENGTH}
                     value={editTitle}
                     onChange={(e) => setEditTitle(e.target.value)}
                     onKeyDown={(e) => {

@@ -143,7 +143,8 @@ export function AudioPlayer() {
   const [currentTime, setCurrentTime] = useState(restoredPlayback?.position || 0);
   const [duration, setDuration] = useState(0);
   const [liveTitle, setLiveTitle] = useState<string>('');
-  const [playedIndices, setPlayedIndices] = useState<number[]>([]);
+  const [playedIds, setPlayedIds] = useState<string[]>([]);
+  const [youtubeEnabled, setYoutubeEnabled] = useState(false);
   const [apiReady, setApiReady] = useState(false);
   const [expandedPlaylistId, setExpandedPlaylistId] = useState<string | null>(null);
   const [nativePlaylistTracks, setNativePlaylistTracks] = useState<NativePlaylistTrack[]>([]);
@@ -159,7 +160,6 @@ export function AudioPlayer() {
   const pendingTrackRef = useRef<{ track: TrackItem; options: LoadSourceOptions } | null>(null);
   const handleNextTrackRef = useRef<() => void>(() => {});
   const resumePositionRef = useRef(restoredPlayback?.position || 0);
-  const restoredPlayerRef = useRef(false);
   const queueRef = useRef(queue);
   const currentTrackIndexRef = useRef(currentTrackIndex);
   const repeatModeRef = useRef(repeatMode);
@@ -167,6 +167,10 @@ export function AudioPlayer() {
   const playTrackAtIndexRef = useRef<(index: number) => void>(() => {});
   const playlistMetadataCacheRef = useRef<Map<string, YouTubeVideoMetadata | null>>(new Map());
   const playlistSyncGenerationRef = useRef(0);
+  const activeSourceRef = useRef<{ track: TrackItem; options: LoadSourceOptions } | null>(null);
+  const repeatingPlaylistIndexRef = useRef<number | null>(null);
+  const settingsRef = useRef({ volume, isMuted, isShuffle, repeatMode });
+  settingsRef.current = { volume, isMuted, isShuffle, repeatMode };
 
   const currentTrack: TrackItem | undefined = queue[currentTrackIndex];
 
@@ -195,6 +199,7 @@ export function AudioPlayer() {
 
   // Load YouTube Iframe API once
   useEffect(() => {
+    if (!youtubeEnabled) return;
     if (window.YT && window.YT.Player) {
       setApiReady(true);
       return;
@@ -212,6 +217,23 @@ export function AudioPlayer() {
       const firstScriptTag = document.getElementsByTagName('script')[0];
       firstScriptTag?.parentNode?.insertBefore(tag, firstScriptTag);
     }
+    return () => { window.onYouTubeIframeAPIReady = previousOnReady; };
+  }, [youtubeEnabled]);
+
+  useEffect(() => {
+    const pauseWhenHidden = () => {
+      if (document.visibilityState === 'hidden') {
+        try { ytPlayerRef.current?.pauseVideo?.(); } catch {}
+        setIsPlaying(false);
+      }
+    };
+    document.addEventListener('visibilitychange', pauseWhenHidden);
+    return () => document.removeEventListener('visibilitychange', pauseWhenHidden);
+  }, []);
+
+  useEffect(() => () => {
+    try { ytPlayerRef.current?.destroy?.(); } catch {}
+    ytPlayerRef.current = null;
   }, []);
 
   // Update volume
@@ -295,6 +317,7 @@ export function AudioPlayer() {
 
   // Play next track
   const handleNextTrack = useCallback(() => {
+    repeatingPlaylistIndexRef.current = null;
     if (queue.length === 0) return;
 
     // If native YT playlist is playing and has multiple tracks, try native nextVideo
@@ -313,7 +336,7 @@ export function AudioPlayer() {
 
     const unplayed = queue
       .map((_, i) => i)
-      .filter((i) => !playedIndices.includes(i) && i !== currentTrackIndex);
+      .filter((i) => !playedIds.includes(queue[i]!.id) && i !== currentTrackIndex);
 
     const nextIndex = getNextTrackIndex(
       currentTrackIndex,
@@ -328,10 +351,10 @@ export function AudioPlayer() {
       return;
     }
 
-    setPlayedIndices((prev) => [...prev, nextIndex]);
+    if (isShuffle && unplayed.length === 0) setPlayedIds(currentTrack ? [currentTrack.id] : []);
     setPlaybackError('');
     playTrackAtIndex(nextIndex);
-  }, [queue, currentTrackIndex, isShuffle, repeatMode, playedIndices, currentTrack]);
+  }, [queue, currentTrackIndex, isShuffle, repeatMode, playedIds, currentTrack]);
 
   useEffect(() => {
     handleNextTrackRef.current = handleNextTrack;
@@ -339,6 +362,7 @@ export function AudioPlayer() {
 
   // Play previous track
   const handlePrevTrack = useCallback(() => {
+    repeatingPlaylistIndexRef.current = null;
     if (queue.length === 0) return;
 
     if (currentTrack?.sourceType === 'youtube-playlist' && ytPlayerRef.current && typeof ytPlayerRef.current.previousVideo === 'function') {
@@ -353,12 +377,15 @@ export function AudioPlayer() {
   }, [queue, currentTrackIndex, repeatMode, currentTrack]);
 
   // Play track at specified index
-  const playTrackAtIndex = (index: number, queueOverride?: TrackItem[]) => {
+  const playTrackAtIndex = (index: number, queueOverride?: TrackItem[], autoplay = true) => {
     const effectiveQueue = queueOverride ?? queue;
     if (index < 0 || index >= effectiveQueue.length) return;
     setCurrentTrackIndex(index);
     const track = effectiveQueue[index];
     if (!track) return;
+    queueRef.current = effectiveQueue;
+    currentTrackIndexRef.current = index;
+    setPlayedIds(previous => previous.includes(track.id) ? previous : [...previous, track.id]);
     setCurrentTime(0);
     setDuration(0);
     setLiveTitle('');
@@ -376,11 +403,15 @@ export function AudioPlayer() {
       setExpandedPlaylistId(track.id);
     }
 
-    loadYouTubeSource(track);
+    loadYouTubeSource(track, { autoplay });
   };
 
   const loadYouTubeSource = (track: TrackItem, options: LoadSourceOptions = {}) => {
-    const autoplay = options.autoplay !== false;
+    repeatingPlaylistIndexRef.current = null;
+    setYoutubeEnabled(true);
+    setPlayedIds(previous => previous.includes(track.id) ? previous : [...previous, track.id]);
+    activeSourceRef.current = { track, options };
+    const autoplay = options.autoplay !== false && document.visibilityState === 'visible';
     const startSeconds = Math.max(0, options.startSeconds || 0);
     const playlistIndex = Math.max(0, options.playlistIndex || 0);
     if (!window.YT || !window.YT.Player) {
@@ -390,7 +421,16 @@ export function AudioPlayer() {
     pendingTrackRef.current = null;
 
     const onPlayerReady = (event: any) => {
-      ytPlayerRef.current = event.target;
+      if (event.target !== ytPlayerRef.current) return;
+      const active = activeSourceRef.current;
+      if (!active) return;
+      const startSeconds = Math.max(0, active.options.startSeconds || 0);
+      const autoplay = active.options.autoplay !== false;
+      const { volume, isMuted, isShuffle, repeatMode } = settingsRef.current;
+      if (active.track.id !== track.id) {
+        loadYouTubeSource(active.track, active.options);
+        return;
+      }
       event.target.setVolume(isMuted ? 0 : volume);
       if (isShuffle && typeof event.target.setShuffle === 'function') {
         event.target.setShuffle(true);
@@ -407,21 +447,31 @@ export function AudioPlayer() {
       if (typeof event.target.getDuration === 'function') {
         setDuration(event.target.getDuration() || 0);
       }
-      if (autoplay) {
+      if (autoplay && document.visibilityState === 'visible') {
+        document.getElementById('youtube-player-host')?.scrollIntoView({ block: 'center' });
         event.target.playVideo();
         setIsPlaying(true);
       } else {
         event.target.pauseVideo?.();
         setIsPlaying(false);
       }
-      if (track.sourceType === 'youtube-playlist') {
+      if (active.track.sourceType === 'youtube-playlist') {
         syncNativePlaylist(event.target);
       }
     };
 
     const onPlayerStateChange = (event: any) => {
+      if (event.target !== ytPlayerRef.current || !activeSourceRef.current) return;
       // 1 = playing, 2 = paused, 0 = ended
       if (event.data === 1) {
+        if (document.visibilityState === 'hidden') { event.target.pauseVideo?.(); return; }
+        const repeatingIndex = repeatingPlaylistIndexRef.current;
+        repeatingPlaylistIndexRef.current = null;
+        if (repeatModeRef.current === 'one' && repeatingIndex !== null
+          && event.target.getPlaylistIndex?.() !== repeatingIndex) {
+          event.target.playVideoAt?.(repeatingIndex);
+          return;
+        }
         setIsPlaying(true);
         setPlaybackError('');
         const playingTrack = queueRef.current[currentTrackIndexRef.current];
@@ -437,18 +487,29 @@ export function AudioPlayer() {
       } else if (event.data === 2) {
         setIsPlaying(false);
       } else if (event.data === 5) {
+        const startSeconds = Math.max(0, activeSourceRef.current.options.startSeconds || 0);
         setIsPlaying(false);
         setCurrentTime(startSeconds);
         setSeekPreview(startSeconds);
         setDuration(event.target.getDuration?.() || 0);
       } else if (event.data === 0) {
-        // Track ended
-        handleNextTrackRef.current();
+        if (repeatModeRef.current === 'one') {
+          if (activeSourceRef.current.track.sourceType === 'youtube-playlist') {
+            const index = event.target.getPlaylistIndex?.() ?? -1;
+            if (index >= 0) {
+              repeatingPlaylistIndexRef.current = index;
+              event.target.playVideoAt?.(index);
+            }
+          }
+          event.target.seekTo(0, true);
+          event.target.playVideo();
+        } else handleNextTrackRef.current();
       }
     };
 
     const onError = (event: any) => {
-      if (track.sourceType === 'youtube-playlist') {
+      if (event.target !== ytPlayerRef.current || !activeSourceRef.current) return;
+      if (activeSourceRef.current.track.sourceType === 'youtube-playlist') {
         try {
           const playlist = event.target.getPlaylist?.() || [];
           const index = event.target.getPlaylistIndex?.() ?? -1;
@@ -479,6 +540,7 @@ export function AudioPlayer() {
     // If player already exists, use existing instance methods
     if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
       try {
+        if (autoplay) document.getElementById('youtube-player-host')?.scrollIntoView({ block: 'center' });
         if (track.sourceType === 'youtube-playlist' && track.playlistId) {
           const playlistOptions = {
             list: track.playlistId,
@@ -518,11 +580,13 @@ export function AudioPlayer() {
     }
 
     const playerConfig: any = {
-      height: '1',
-      width: '1',
+      height: '270',
+      width: '100%',
+      host: 'https://www.youtube-nocookie.com',
       playerVars: {
         autoplay: autoplay ? 1 : 0,
-        controls: 0,
+        controls: 1,
+        playsinline: 1,
         disablekb: 1,
         fs: 0,
         modestbranding: 1,
@@ -545,7 +609,11 @@ export function AudioPlayer() {
     }
 
     try {
-      ytPlayerRef.current = new window.YT.Player('youtube-player-element', playerConfig);
+      const host = document.getElementById('youtube-player-host');
+      if (!host) return;
+      const element = document.createElement('div');
+      host.replaceChildren(element);
+      ytPlayerRef.current = new window.YT.Player(element, playerConfig);
     } catch {}
   };
 
@@ -558,17 +626,6 @@ export function AudioPlayer() {
       const pending = pendingTrackRef.current;
       loadYouTubeSource(pending.track, pending.options);
       return;
-    }
-    if (apiReady && restoredPlayback && !restoredPlayerRef.current) {
-      const restoredTrack = queue.find((track) => track.id === restoredPlayback.trackId);
-      if (restoredTrack) {
-        restoredPlayerRef.current = true;
-        loadYouTubeSource(restoredTrack, {
-          autoplay: false,
-          startSeconds: restoredPlayback.position,
-          playlistIndex: restoredPlayback.playlistIndex,
-        });
-      }
     }
   }, [apiReady]);
 
@@ -611,6 +668,7 @@ export function AudioPlayer() {
 
   // Toggle Play / Pause
   const handleTogglePlayPause = () => {
+    setYoutubeEnabled(true);
     if (!currentTrack) {
       if (queue.length > 0) {
         playTrackAtIndex(0);
@@ -644,7 +702,7 @@ export function AudioPlayer() {
           playTrackAtIndex(currentTrackIndex);
         }
       } else {
-        playTrackAtIndex(currentTrackIndex);
+        loadYouTubeSource(currentTrack, { startSeconds: resumePositionRef.current, playlistIndex: nativePlaylistIndex });
       }
     }
   };
@@ -658,6 +716,8 @@ export function AudioPlayer() {
     }
     setIsPlaying(false);
     setCurrentTime(0);
+    setSeekPreview(0);
+    resumePositionRef.current = 0;
   };
 
   // Toggle Shuffle
@@ -673,6 +733,7 @@ export function AudioPlayer() {
 
   // Cycle Repeat Mode: off -> all -> one
   const handleCycleRepeat = () => {
+    repeatingPlaylistIndexRef.current = null;
     const modes: RepeatMode[] = ['off', 'all', 'one'];
     const nextIdx = (modes.indexOf(repeatMode) + 1) % modes.length;
     const nextMode = modes[nextIdx] ?? 'off';
@@ -722,19 +783,42 @@ export function AudioPlayer() {
   // Remove track from queue
   const handleRemoveTrack = (id: string, index: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    setQueue((prev) => prev.filter((t) => t.id !== id));
+    const nextQueue = queue.filter(track => track.id !== id);
+    queueRef.current = nextQueue;
+    setQueue(nextQueue);
+    setPlayedIds(previous => previous.filter(played => played !== id));
+    failedTrackIdsRef.current.delete(id);
     if (index === currentTrackIndex) {
       handleStop();
+      activeSourceRef.current = null;
+      pendingTrackRef.current = null;
+      setLiveTitle('');
+      setDuration(0);
+      setIsLive(false);
+      setPlaybackError('');
       playlistSyncGenerationRef.current += 1;
       setNativePlaylistTracks([]);
       setNativePlaylistIndex(-1);
+      if (nextQueue.length) {
+        const nextIndex = Math.min(index, nextQueue.length - 1);
+        if (youtubeEnabled) playTrackAtIndex(nextIndex, nextQueue, false);
+        else { currentTrackIndexRef.current = nextIndex; setCurrentTrackIndex(nextIndex); }
+      }
+      else {
+        try { ytPlayerRef.current?.destroy?.(); } catch {}
+        ytPlayerRef.current = null;
+        currentTrackIndexRef.current = 0;
+        setCurrentTrackIndex(0);
+      }
     } else if (index < currentTrackIndex) {
+      currentTrackIndexRef.current = currentTrackIndex - 1;
       setCurrentTrackIndex((prev) => Math.max(0, prev - 1));
     }
     if (expandedPlaylistId === id) setExpandedPlaylistId(null);
   };
 
   const handlePlayNativePlaylistTrack = (index: number) => {
+    repeatingPlaylistIndexRef.current = null;
     if (!ytPlayerRef.current || typeof ytPlayerRef.current.playVideoAt !== 'function') return;
     try {
       ytPlayerRef.current.playVideoAt(index);
@@ -763,11 +847,6 @@ export function AudioPlayer() {
 
   return (
     <section className="window w-full mt-5 font-pixel select-none" aria-label="Music player">
-      {/* Hidden YouTube API container */}
-      <div className="absolute -top-[9999px] -left-[9999px] pointer-events-none opacity-0">
-        <div id="youtube-player-element" />
-      </div>
-
       <div className="titlebar">
         <span className="titlebar-box left" aria-hidden="true" />
         <span className="titlebar-title">Jukebox</span>
@@ -787,6 +866,7 @@ export function AudioPlayer() {
       </div>
 
       <div className="window-body !pt-3 !pb-3">
+        <div id="youtube-player-host" className={youtubeEnabled && currentTrack ? 'w-full min-h-[200px] mb-3' : ''} />
         {/* Load panel */}
         {showSettings && (
           <form onSubmit={handleAddSource} className="groupbox mb-4 mt-3">
@@ -817,7 +897,7 @@ export function AudioPlayer() {
                 Cancel
               </button>
             </div>
-            <p className="dim text-base mt-2">Playlists and live streams work too. Playback uses YouTube's own player.</p>
+            <p className="dim text-base mt-2">Playing connects to YouTube, which may collect playback data and use cookies. The video stays visible; playback pauses when this tab is hidden.</p>
           </form>
         )}
 

@@ -2,463 +2,67 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { Header } from './components/Header';
 import { TimerCircle } from './components/TimerCircle';
 import { TaskList } from './components/TaskList';
 import { AudioPlayer } from './components/AudioPlayer';
 import { SyncModal } from './components/SyncModal';
-import { Task, createTask, toggleTask, updateTaskTitle, deleteTask, normalizeTasks } from './utils/tasks';
-import { mergeTasks, isValidSyncKey, normalizeSyncKey } from './utils/sync';
-import { type FocusStats, migrateLegacyStats, normalizeFocusStats, recordFocusSession } from './utils/stats';
-import { parseStoredInteger, parseStoredJson } from './utils/storage';
-import { playWorkCompleteChime, playBreakCompleteChime, playClickSound } from './utils/audio';
+import { createTask, toggleTask, updateTaskTitle, deleteTask } from './utils/tasks';
+import { playClickSound } from './utils/audio';
 import { nextThemeMode, normalizeThemeMode, type ThemeMode } from './utils/theme';
+import { usePomodoro } from './hooks/usePomodoro';
+import { useTaskSync } from './hooks/useTaskSync';
 
-const WeeklyStats = lazy(() => import('./components/WeeklyStats').then((module) => ({ default: module.WeeklyStats })));
+const WeeklyStats = lazy(() => import('./components/WeeklyStats').then(module => ({ default: module.WeeklyStats })));
 
 export default function App() {
-  // Navigation tab state: 'timer' or 'stats'
   const [activeTab, setActiveTab] = useState<'timer' | 'stats'>('timer');
-
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() =>
-    normalizeThemeMode(localStorage.getItem('pomodoro_theme'))
-  );
-  const [systemIsDark, setSystemIsDark] = useState(() =>
-    window.matchMedia('(prefers-color-scheme: dark)').matches
-  );
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => normalizeThemeMode(localStorage.getItem('pomodoro_theme')));
+  const [systemIsDark, setSystemIsDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
   const isDark = themeMode === 'system' ? systemIsDark : themeMode === 'dark';
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const timer = usePomodoro();
+  const sync = useTaskSync();
+  const cycleTheme = useCallback(() => setThemeMode(current => nextThemeMode(current)), []);
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)');
-    const updateSystemTheme = (event: MediaQueryListEvent | MediaQueryList) => setSystemIsDark(event.matches);
-    updateSystemTheme(media);
-    media.addEventListener('change', updateSystemTheme);
-    return () => media.removeEventListener('change', updateSystemTheme);
+    const update = () => setSystemIsDark(media.matches);
+    update(); media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
   }, []);
 
-  const cycleTheme = useCallback(() => {
-    setThemeMode((current) => nextThemeMode(current));
-  }, []);
-
-  // Sync html class for dark mode
   useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    document.documentElement.classList.toggle('dark', isDark);
     localStorage.setItem('pomodoro_theme', themeMode);
+    // The document's theme-color overrides the manifest fallback in installed
+    // Chromium windows and follows the explicit in-app choice as well as system.
+    for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
+      meta.removeAttribute('media'); meta.content = isDark ? '#121212' : '#ffffff';
+    }
   }, [isDark, themeMode]);
 
-  // Durations in minutes
-  const [workMinutes, setWorkMinutes] = useState<number>(() => {
-    return parseStoredInteger(localStorage.getItem('pomodoro_work_duration'), 25, 1, 90);
-  });
-
-  const [breakMinutes, setBreakMinutes] = useState<number>(() => {
-    return parseStoredInteger(localStorage.getItem('pomodoro_break_duration'), 5, 1, 45);
-  });
-
-  // Timer state
-  const [mode, setMode] = useState<'work' | 'break'>('work');
-  const [isRunning, setIsRunning] = useState<boolean>(false);
-  const [timeLeft, setTimeLeft] = useState<number>(() => workMinutes * 60);
-
-  // Completed pomodoros count
-  const [completedSessions, setCompletedSessions] = useState<number>(() => {
-    return parseStoredInteger(localStorage.getItem('pomodoro_completed_sessions'), 0, 0, Number.MAX_SAFE_INTEGER);
-  });
-
-  const [focusStats, setFocusStats] = useState<FocusStats>(() => {
-    const current = parseStoredJson(localStorage.getItem('pomodoro_focus_stats_v2'));
-    if (current) return normalizeFocusStats(current);
-    return migrateLegacyStats(
-      parseStoredJson(localStorage.getItem('pomodoro_daily_stats')),
-      workMinutes
-    );
-  });
-
   useEffect(() => {
-    localStorage.setItem('pomodoro_focus_stats_v2', JSON.stringify(focusStats));
-    localStorage.removeItem('pomodoro_daily_stats');
-  }, [focusStats]);
-
-  // Cloudflare Sync state
-  const [syncKey, setSyncKey] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-      const searchParams = new URLSearchParams(window.location.search);
-      const urlKey = hashParams.get('sync') || searchParams.get('sync');
-      if (urlKey && isValidSyncKey(urlKey)) {
-        const normalizedKey = normalizeSyncKey(urlKey);
-        localStorage.setItem('pomodoro_sync_key', normalizedKey);
-
-        hashParams.delete('sync');
-        searchParams.delete('sync');
-        const cleanSearch = searchParams.toString();
-        const cleanHash = hashParams.toString();
-        window.history.replaceState(
-          null,
-          '',
-          `${window.location.pathname}${cleanSearch ? `?${cleanSearch}` : ''}${cleanHash ? `#${cleanHash}` : ''}`
-        );
-        return normalizedKey;
-      }
-      const storedKey = localStorage.getItem('pomodoro_sync_key') || '';
-      return isValidSyncKey(storedKey) ? normalizeSyncKey(storedKey) : '';
-    }
-    return '';
-  });
-
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [lastSynced, setLastSynced] = useState<number | null>(null);
-  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
-
-  // Tasks state
-  const [tasks, setTasks] = useState<Task[]>(() => {
-    const saved = localStorage.getItem('pomodoro_tasks');
-    if (saved) {
-      return normalizeTasks(parseStoredJson(saved));
-    }
-    return [];
-  });
-  const tasksRef = useRef(tasks);
-
-  // Save tasks to local storage
-  useEffect(() => {
-    tasksRef.current = tasks;
-    localStorage.setItem('pomodoro_tasks', JSON.stringify(tasks));
-  }, [tasks]);
-
-  // Push tasks to Cloudflare / Server
-  const syncRevisionRef = useRef(0);
-
-  const pushTasksToServer = useCallback(async (key: string, tasksToPush: Task[]) => {
-    const normalizedKey = normalizeSyncKey(key);
-    if (!normalizedKey || !isValidSyncKey(normalizedKey)) return;
-    setSyncStatus('syncing');
-    setSyncError(null);
-    try {
-      const postTasks = (tasksForRequest: Task[], baseRevision: number) => fetch('/api/tasks', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${normalizedKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ tasks: tasksForRequest, baseRevision }),
-      });
-      let tasksForRequest = tasksToPush;
-      let res = await postTasks(tasksForRequest, syncRevisionRef.current);
-
-      if (res.status === 409) {
-        const conflict = await res.json();
-        const remoteTasks = normalizeTasks(conflict.tasks);
-        tasksForRequest = mergeTasks(tasksForRequest, remoteTasks);
-        syncRevisionRef.current = Number.isInteger(conflict.revision) ? conflict.revision : 0;
-        setTasks(tasksForRequest);
-        res = await postTasks(tasksForRequest, syncRevisionRef.current);
-      }
-
-      if (res.ok) {
-        const data = await res.json();
-        syncRevisionRef.current = Number.isInteger(data.revision)
-          ? data.revision
-          : syncRevisionRef.current;
-        setSyncStatus('synced');
-        setLastSynced(Date.now());
-        setSyncError(null);
-      } else {
-        const data = await res.json().catch(() => null);
-        setSyncStatus('error');
-        setSyncError(data?.error || 'Failed to push tasks');
-      }
-    } catch {
-      setSyncStatus('error');
-      setSyncError('Network error connecting to Cloudflare sync');
-    }
-  }, []);
-
-  // Fetch tasks from Cloudflare / Server
-  const fetchTasksFromServer = useCallback(async (key: string) => {
-    const normalizedKey = normalizeSyncKey(key);
-    if (!normalizedKey || !isValidSyncKey(normalizedKey)) return;
-    setSyncStatus('syncing');
-    setSyncError(null);
-    try {
-      const res = await fetch('/api/tasks', {
-        headers: { Authorization: `Bearer ${normalizedKey}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const remoteTasks = normalizeTasks(data.tasks);
-        syncRevisionRef.current = Number.isInteger(data.revision) ? data.revision : 0;
-
-        const merged = mergeTasks(tasksRef.current, remoteTasks);
-        setTasks(merged);
-        if (JSON.stringify(merged) !== JSON.stringify(remoteTasks)) {
-          await pushTasksToServer(normalizedKey, merged);
-        }
-
-        if (JSON.stringify(merged) === JSON.stringify(remoteTasks)) {
-          setSyncStatus('synced');
-          setLastSynced(Date.now());
-          setSyncError(null);
-        }
-      } else {
-        const data = await res.json().catch(() => null);
-        setSyncStatus('error');
-        setSyncError(data?.error || 'Could not retrieve remote tasks');
-      }
-    } catch {
-      setSyncStatus('error');
-      setSyncError('Network error retrieving tasks');
-    }
-  }, [pushTasksToServer]);
-
-  // Initial fetch and key changes
-  useEffect(() => {
-    if (syncKey) {
-      localStorage.setItem('pomodoro_sync_key', syncKey);
-      fetchTasksFromServer(syncKey);
-    }
-  }, [syncKey, fetchTasksFromServer]);
-
-  // Keep open devices converged without requiring a focus change or manual sync.
-  useEffect(() => {
-    if (!syncKey) return;
-    const refresh = () => {
-      if (document.visibilityState === 'visible') fetchTasksFromServer(syncKey);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.repeat
+        || event.isComposing || isSyncModalOpen || sync.pendingPairKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return;
+      if (event.code === 'Space') {
+        // Let a focused button handle Space itself (including the timer button).
+        if (target?.closest('button, a')) return;
+        event.preventDefault(); timer.toggleTimer();
+      } else if (event.key.toLowerCase() === 'r') { event.preventDefault(); timer.resetTimer(); }
+      else if (event.key.toLowerCase() === 'd') { event.preventDefault(); cycleTheme(); }
     };
-    const interval = window.setInterval(refresh, 15_000);
-    document.addEventListener('visibilitychange', refresh);
-    return () => {
-      window.clearInterval(interval);
-      document.removeEventListener('visibilitychange', refresh);
-    };
-  }, [syncKey, fetchTasksFromServer]);
-
-  // Auto-sync on window focus
-  useEffect(() => {
-    const handleFocus = () => {
-      if (syncKey) {
-        fetchTasksFromServer(syncKey);
-      }
-    };
-
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
-  }, [syncKey, fetchTasksFromServer]);
-
-  // Handle changing sync key
-  const handleSetSyncKey = (newKey: string) => {
-    const normalizedKey = normalizeSyncKey(newKey);
-    setSyncKey(normalizedKey);
-    localStorage.setItem('pomodoro_sync_key', normalizedKey);
-  };
-
-  const handleRotateSyncKey = async (newKey: string): Promise<boolean> => {
-    if (!syncKey) {
-      handleSetSyncKey(newKey);
-      return true;
-    }
-    setSyncStatus('syncing');
-    setSyncError(null);
-    try {
-      const response = await fetch('/api/tasks', {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${syncKey}` },
-      });
-      if (!response.ok) {
-        const data = await response.json().catch(() => null);
-        setSyncStatus('error');
-        setSyncError(data?.error || 'Could not revoke the old pairing key');
-        return false;
-      }
-      syncRevisionRef.current = 0;
-      handleSetSyncKey(newKey);
-      return true;
-    } catch {
-      setSyncStatus('error');
-      setSyncError('Network error while rotating the pairing key');
-      return false;
-    }
-  };
-
-  const handleDisconnectSync = () => {
-    setSyncKey('');
-    localStorage.removeItem('pomodoro_sync_key');
-    setSyncStatus('idle');
-    setLastSynced(null);
-  };
-
-  // Save durations
-  useEffect(() => {
-    localStorage.setItem('pomodoro_work_duration', workMinutes.toString());
-  }, [workMinutes]);
-
-  useEffect(() => {
-    localStorage.setItem('pomodoro_break_duration', breakMinutes.toString());
-  }, [breakMinutes]);
-
-  useEffect(() => {
-    localStorage.setItem('pomodoro_completed_sessions', completedSessions.toString());
-  }, [completedSessions]);
-
-  // Keep timeLeft in sync when durations change while paused
-  const handleWorkDurationChange = (val: number) => {
-    if (isRunning) return;
-    setWorkMinutes(val);
-    if (mode === 'work') {
-      setTimeLeft(val * 60);
-    }
-  };
-
-  const handleBreakDurationChange = (val: number) => {
-    if (isRunning) return;
-    setBreakMinutes(val);
-    if (mode === 'break') {
-      setTimeLeft(val * 60);
-    }
-  };
-
-  // Timer Tick Interval
-  const timerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (isRunning) {
-      timerRef.current = window.setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            // Session complete
-            if (mode === 'work') {
-              playWorkCompleteChime();
-              setCompletedSessions((c) => c + 1);
-              setFocusStats((stats) => recordFocusSession(stats, workMinutes));
-              setMode('break');
-              if ('Notification' in window && Notification.permission === 'granted') {
-                new Notification('Pomodoro Complete!', {
-                  body: `Great job! Time for a ${breakMinutes} minute break.`,
-                });
-              }
-              return breakMinutes * 60;
-            } else {
-              playBreakCompleteChime();
-              setMode('work');
-              if ('Notification' in window && Notification.permission === 'granted') {
-                new Notification('Break Finished!', {
-                  body: `Time to start your ${workMinutes} minute work session.`,
-                });
-              }
-              return workMinutes * 60;
-            }
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    }
-
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [isRunning, mode, workMinutes, breakMinutes]);
-
-  // Toggle Start / Pause
-  const toggleTimer = () => {
-    playClickSound();
-    if (!isRunning && 'Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => {});
-    }
-    setIsRunning(!isRunning);
-  };
-
-  // Reset Timer
-  const resetTimer = () => {
-    playClickSound();
-    setIsRunning(false);
-    setTimeLeft(mode === 'work' ? workMinutes * 60 : breakMinutes * 60);
-  };
-
-  // Global Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
-        return;
-      }
-
-      if (e.code === 'Space') {
-        e.preventDefault();
-        toggleTimer();
-      } else if (e.key === 'r' || e.key === 'R') {
-        e.preventDefault();
-        resetTimer();
-      } else if (e.key === 'd' || e.key === 'D') {
-        e.preventDefault();
-        cycleTheme();
-      }
-    };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isRunning, mode, workMinutes, breakMinutes, cycleTheme]);
-
-  // Task actions with automatic Cloudflare sync
-  const handleAddTask = (title: string) => {
-    playClickSound();
-    const newTask = createTask(title);
-    setTasks((prev) => {
-      const updated = [newTask, ...prev];
-      if (syncKey) pushTasksToServer(syncKey, updated);
-      return updated;
-    });
-  };
-
-  const handleToggleTask = (id: string) => {
-    playClickSound();
-    setTasks((prev) => {
-      const updated = toggleTask(prev, id);
-      if (syncKey) pushTasksToServer(syncKey, updated);
-      return updated;
-    });
-  };
-
-  const handleUpdateTask = (id: string, newTitle: string) => {
-    playClickSound();
-    setTasks((prev) => {
-      const updated = updateTaskTitle(prev, id, newTitle);
-      if (syncKey) pushTasksToServer(syncKey, updated);
-      return updated;
-    });
-  };
-
-  const handleDeleteTask = (id: string) => {
-    playClickSound();
-    setTasks((prev) => {
-      const updated = deleteTask(prev, id);
-      if (syncKey) pushTasksToServer(syncKey, updated);
-      return updated;
-    });
-  };
-
-  const totalDuration = (mode === 'work' ? workMinutes : breakMinutes) * 60;
+  }, [timer.toggleTimer, timer.resetTimer, cycleTheme, isSyncModalOpen, sync.pendingPairKey]);
 
   return (
     <div className="min-h-screen w-full flex flex-col items-center">
-      <Header
-        isDark={isDark}
-        themeMode={themeMode}
-        onCycleTheme={cycleTheme}
-        activeTab={activeTab}
-        onChangeTab={setActiveTab}
-      />
-
+      <Header isDark={isDark} themeMode={themeMode} onCycleTheme={cycleTheme} activeTab={activeTab} onChangeTab={setActiveTab} />
       <div className="w-full max-w-2xl flex flex-col px-3 sm:px-6 pt-6 sm:pt-10 pb-6">
         <main className="window w-full">
           <div className="titlebar">
@@ -466,71 +70,51 @@ export default function App() {
             <h1 className="titlebar-title">{activeTab === 'timer' ? 'Timer' : 'Stats'}</h1>
             <span className="titlebar-box right" aria-hidden="true" />
           </div>
-
           <div className="window-body">
-            {activeTab === 'timer' && (
-              <>
-                <TimerCircle
-                  mode={mode}
-                  timeLeft={timeLeft}
-                  totalDuration={totalDuration}
-                  isRunning={isRunning}
-                  workMinutes={workMinutes}
-                  breakMinutes={breakMinutes}
-                  onToggleStart={toggleTimer}
-                  onReset={resetTimer}
-                  onChangeWorkMinutes={handleWorkDurationChange}
-                  onChangeBreakMinutes={handleBreakDurationChange}
-                />
-
-                <TaskList
-                  tasks={tasks}
-                  onAddTask={handleAddTask}
-                  onToggleTask={handleToggleTask}
-                  onUpdateTask={handleUpdateTask}
-                  onDeleteTask={handleDeleteTask}
-                  syncKey={syncKey}
-                  syncStatus={syncStatus}
-                  onOpenSyncModal={() => setIsSyncModalOpen(true)}
-                />
-              </>
-            )}
-
-            {activeTab === 'stats' && (
-              <Suspense fallback={<div className="min-h-80 flex items-center justify-center text-xl">Loading stats...</div>}>
-                <WeeklyStats
-                  stats={focusStats}
-                  isDark={isDark}
-                  onGoToTimer={() => setActiveTab('timer')}
-                />
-              </Suspense>
-            )}
+            {activeTab === 'timer' ? <>
+              <TimerCircle mode={timer.mode} timeLeft={timer.timeLeft}
+                totalDuration={(timer.mode === 'work' ? timer.workMinutes : timer.breakMinutes) * 60}
+                isRunning={timer.isRunning} workMinutes={timer.workMinutes} breakMinutes={timer.breakMinutes}
+                onToggleStart={timer.toggleTimer} onReset={timer.resetTimer}
+                onChangeWorkMinutes={timer.handleWorkDurationChange} onChangeBreakMinutes={timer.handleBreakDurationChange} />
+              <TaskList tasks={sync.tasks} syncKey={sync.syncKey} syncStatus={sync.syncStatus}
+                onOpenSyncModal={() => setIsSyncModalOpen(true)}
+                onAddTask={title => { playClickSound(); sync.updateTasks([createTask(title), ...sync.tasks]); }}
+                onToggleTask={id => { playClickSound(); sync.updateTasks(toggleTask(sync.tasks, id)); }}
+                onUpdateTask={(id, title) => { playClickSound(); sync.updateTasks(updateTaskTitle(sync.tasks, id, title)); }}
+                onDeleteTask={id => { playClickSound(); sync.updateTasks(deleteTask(sync.tasks, id)); }} />
+              {sync.syncError && <p role="alert" className="mt-2 text-base">{sync.syncError}</p>}
+            </> : <Suspense fallback={<div className="min-h-80 flex items-center justify-center text-xl">Loading stats...</div>}>
+              <WeeklyStats stats={timer.focusStats} isDark={isDark} onGoToTimer={() => setActiveTab('timer')} />
+            </Suspense>}
           </div>
         </main>
-
-        {/* Music player, a window of its own, shown on both views */}
         <AudioPlayer />
-
         <footer className="mt-5 flex justify-center">
           <p className="statusline select-none">
             <span className="hidden sm:inline">Space start/pause &nbsp; R reset &nbsp; D theme &nbsp;|&nbsp; </span>
-            {completedSessions} {completedSessions === 1 ? 'timer' : 'timers'} completed
+            <span>{timer.completedSessions} {timer.completedSessions === 1 ? 'timer' : 'timers'} completed</span>
           </p>
         </footer>
       </div>
-
-      <SyncModal
-        isOpen={isSyncModalOpen}
-        onClose={() => setIsSyncModalOpen(false)}
-        syncKey={syncKey}
-        syncStatus={syncStatus}
-        syncError={syncError}
-        lastSynced={lastSynced}
-        onSetSyncKey={handleSetSyncKey}
-        onRotateSyncKey={handleRotateSyncKey}
-        onDisconnect={handleDisconnectSync}
-        onManualSync={() => syncKey && fetchTasksFromServer(syncKey)}
-      />
+      <SyncModal isOpen={isSyncModalOpen && !sync.pendingPairKey} onClose={() => setIsSyncModalOpen(false)}
+        syncKey={sync.syncKey} syncStatus={sync.syncStatus} syncError={sync.syncError} lastSynced={sync.lastSynced}
+        onSetSyncKey={sync.requestPair} onRotateSyncKey={sync.rotateKey} onDisconnect={sync.disconnect}
+        onManualSync={() => void sync.sync()} />
+      {sync.pendingPairKey && <div className="fixed inset-0 z-50 flex items-center justify-center p-4 [background:var(--screen)]"
+        role="dialog" aria-modal="true" aria-labelledby="pair-title">
+        <div className="dialog w-full max-w-lg p-5">
+          <h2 id="pair-title" className="text-2xl font-bold">Pair with this task list?</h2>
+          <code className="block break-all font-data my-2">{sync.pendingPairKey}</code>
+          <p className="text-lg">This switches this device to the linked room. Choose whether to share your {sync.tasks.length} local tasks. A local backup is kept when switching.</p>
+          <div className="flex flex-col gap-2 mt-4">
+            <button className="btn btn-default" disabled={sync.pairingBusy} onClick={() => void sync.confirmPair(false)}>Use room tasks only</button>
+            <button className="btn" disabled={sync.pairingBusy} onClick={() => void sync.confirmPair(true)}>Merge and share my tasks</button>
+            <button className="btn" disabled={sync.pairingBusy} onClick={sync.cancelPair}>Cancel pairing</button>
+          </div>
+          {sync.pairingError && <p role="alert" className="mt-2">{sync.pairingError}</p>}
+        </div>
+      </div>}
     </div>
   );
 }

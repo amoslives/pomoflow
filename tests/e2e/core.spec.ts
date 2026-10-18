@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { decryptTasks, syncCredential } from '../../src/utils/sync';
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
@@ -54,8 +55,9 @@ test('system theme follows the OS and cycles through explicit modes', async ({ p
 test('pairing creates a fragment link and local QR code', async ({ page }) => {
   await page.getByRole('button', { name: /open sync settings/i }).click();
   await page.getByRole('button', { name: /generate secure key/i }).click();
+  await expect(page.getByLabel('Sync key', { exact: true })).toHaveValue(/^pf2-[a-z2-7]{26}$/);
   const key = await page.getByLabel('Sync key', { exact: true }).inputValue();
-  expect(key).toMatch(/^pf-[a-z2-7]{26}$/);
+  expect(key).toMatch(/^pf2-[a-z2-7]{26}$/);
   await expect(page.locator('input[readonly]')).toHaveValue(new RegExp(`#sync=${key}$`));
 
   await page.getByRole('button', { name: /show qr code/i }).click();
@@ -66,7 +68,7 @@ test('pairing creates a fragment link and local QR code', async ({ page }) => {
 
 test('pasting a pairing link into the key field connects to its key', async ({ page }) => {
   const alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
-  const key = `pf-${Array.from({ length: 26 }, () => alphabet[Math.floor(Math.random() * 32)]).join('')}`;
+  const key = `pf2-${Array.from({ length: 26 }, () => alphabet[Math.floor(Math.random() * 32)]).join('')}`;
   await page.getByRole('button', { name: /open sync settings/i }).click();
   const keyInput = page.getByLabel('Sync key', { exact: true });
 
@@ -76,6 +78,7 @@ test('pasting a pairing link into the key field connects to its key', async ({ p
 
   await keyInput.fill(`https://pomoflow.pages.dev/#sync=${key.toUpperCase()}`);
   await page.getByRole('button', { name: /^connect$/i }).click();
+  await page.getByRole('button', { name: 'Use room tasks only' }).click();
   await expect(keyInput).toHaveValue(key);
   await expect(page.getByLabel('Pairing link')).toHaveValue(new RegExp(`#sync=${key}$`));
   await expect.poll(() => page.evaluate(() => localStorage.getItem('pomodoro_sync_key'))).toBe(key);
@@ -92,13 +95,15 @@ test('unpaired sync status stays inside its box', async ({ page }) => {
 test('rotating a key revokes the old sync room', async ({ page }) => {
   await page.getByRole('button', { name: /open sync settings/i }).click();
   await page.getByRole('button', { name: /generate secure key/i }).click();
+  await expect(page.getByLabel('Sync key', { exact: true })).toHaveValue(/^pf2-[a-z2-7]{26}$/);
   const oldKey = await page.getByLabel('Sync key', { exact: true }).inputValue();
+  const oldCredential = await syncCredential(oldKey);
   await page.locator('button[aria-label="Close sync modal"]').click();
   await page.locator('input[placeholder*="Add a new task"]').fill('Rotation test task');
   await page.keyboard.press('Enter');
   await expect.poll(async () => {
-    const response = await page.request.get('/api/tasks', { headers: { Authorization: `Bearer ${oldKey}` } });
-    return (await response.json()).tasks.length;
+    const response = await page.request.get('/api/tasks', { headers: { Authorization: `Bearer ${oldCredential}` } });
+    return (await decryptTasks(oldKey, (await response.json()).encrypted)).length;
   }).toBe(1);
 
   await page.getByRole('button', { name: /open sync settings/i }).click();
@@ -108,8 +113,8 @@ test('rotating a key revokes the old sync room', async ({ page }) => {
   const newKey = await keyInput.inputValue();
   expect(newKey).not.toBe(oldKey);
 
-  const revoked = await page.request.get('/api/tasks', { headers: { Authorization: `Bearer ${oldKey}` } });
-  expect((await revoked.json()).tasks).toEqual([]);
+  const revoked = await page.request.get('/api/tasks', { headers: { Authorization: `Bearer ${oldCredential}` } });
+  expect(revoked.status()).toBe(410);
 });
 
 test('malformed persisted data recovers without blanking the app', async ({ page }) => {

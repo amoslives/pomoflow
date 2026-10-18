@@ -15,6 +15,8 @@ import {
   Trash2,
   ChevronDown,
   ChevronRight,
+  Video,
+  VideoOff,
 } from 'lucide-react';
 import { formatTime } from '../utils/timer';
 import { parseStoredJson } from '../utils/storage';
@@ -116,6 +118,7 @@ function normalizeSavedPlayback(value: unknown, queue: TrackItem[]): SavedPlayba
 export function AudioPlayer() {
   const [showSettings, setShowSettings] = useState(false);
   const [showPlaylist, setShowPlaylist] = useState(false);
+  const [showVideo, setShowVideo] = useState(false);
   const [urlInput, setUrlInput] = useState('');
   const [inputTitle, setInputTitle] = useState('');
   const [queue, setQueue] = useState<TrackItem[]>(() => {
@@ -171,6 +174,8 @@ export function AudioPlayer() {
   const repeatingPlaylistIndexRef = useRef<number | null>(null);
   const settingsRef = useRef({ volume, isMuted, isShuffle, repeatMode });
   settingsRef.current = { volume, isMuted, isShuffle, repeatMode };
+  const showVideoRef = useRef(showVideo);
+  showVideoRef.current = showVideo;
 
   const currentTrack: TrackItem | undefined = queue[currentTrackIndex];
 
@@ -219,17 +224,6 @@ export function AudioPlayer() {
     }
     return () => { window.onYouTubeIframeAPIReady = previousOnReady; };
   }, [youtubeEnabled]);
-
-  useEffect(() => {
-    const pauseWhenHidden = () => {
-      if (document.visibilityState === 'hidden') {
-        try { ytPlayerRef.current?.pauseVideo?.(); } catch {}
-        setIsPlaying(false);
-      }
-    };
-    document.addEventListener('visibilitychange', pauseWhenHidden);
-    return () => document.removeEventListener('visibilitychange', pauseWhenHidden);
-  }, []);
 
   useEffect(() => () => {
     try { ytPlayerRef.current?.destroy?.(); } catch {}
@@ -411,7 +405,7 @@ export function AudioPlayer() {
     setYoutubeEnabled(true);
     setPlayedIds(previous => previous.includes(track.id) ? previous : [...previous, track.id]);
     activeSourceRef.current = { track, options };
-    const autoplay = options.autoplay !== false && document.visibilityState === 'visible';
+    const autoplay = options.autoplay !== false;
     const startSeconds = Math.max(0, options.startSeconds || 0);
     const playlistIndex = Math.max(0, options.playlistIndex || 0);
     if (!window.YT || !window.YT.Player) {
@@ -447,8 +441,8 @@ export function AudioPlayer() {
       if (typeof event.target.getDuration === 'function') {
         setDuration(event.target.getDuration() || 0);
       }
-      if (autoplay && document.visibilityState === 'visible') {
-        document.getElementById('youtube-player-host')?.scrollIntoView({ block: 'center' });
+      if (autoplay) {
+        if (showVideoRef.current) document.getElementById('youtube-player-host')?.scrollIntoView({ block: 'center' });
         event.target.playVideo();
         setIsPlaying(true);
       } else {
@@ -464,7 +458,6 @@ export function AudioPlayer() {
       if (event.target !== ytPlayerRef.current || !activeSourceRef.current) return;
       // 1 = playing, 2 = paused, 0 = ended
       if (event.data === 1) {
-        if (document.visibilityState === 'hidden') { event.target.pauseVideo?.(); return; }
         const repeatingIndex = repeatingPlaylistIndexRef.current;
         repeatingPlaylistIndexRef.current = null;
         if (repeatModeRef.current === 'one' && repeatingIndex !== null
@@ -540,7 +533,7 @@ export function AudioPlayer() {
     // If player already exists, use existing instance methods
     if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
       try {
-        if (autoplay) document.getElementById('youtube-player-host')?.scrollIntoView({ block: 'center' });
+        if (autoplay && showVideoRef.current) document.getElementById('youtube-player-host')?.scrollIntoView({ block: 'center' });
         if (track.sourceType === 'youtube-playlist' && track.playlistId) {
           const playlistOptions = {
             list: track.playlistId,
@@ -731,6 +724,18 @@ export function AudioPlayer() {
     }
   };
 
+  // Show or hide the video while the media bar keeps playing
+  const handleToggleVideo = () => {
+    const next = !showVideo;
+    showVideoRef.current = next;
+    setShowVideo(next);
+    if (next) {
+      window.requestAnimationFrame(() => {
+        document.getElementById('youtube-player-host')?.scrollIntoView({ block: 'nearest' });
+      });
+    }
+  };
+
   // Cycle Repeat Mode: off -> all -> one
   const handleCycleRepeat = () => {
     repeatingPlaylistIndexRef.current = null;
@@ -866,7 +871,12 @@ export function AudioPlayer() {
       </div>
 
       <div className="window-body !pt-3 !pb-3">
-        <div id="youtube-player-host" className={youtubeEnabled && currentTrack ? 'w-full min-h-[200px] mb-3' : ''} />
+        <div
+          id="youtube-player-host"
+          className={`w-full overflow-hidden ${showVideo ? 'mb-3' : 'h-0'}`}
+          inert={!showVideo}
+          aria-hidden={!showVideo}
+        />
         {/* Load panel */}
         {showSettings && (
           <form onSubmit={handleAddSource} className="groupbox mb-4 mt-3">
@@ -897,7 +907,7 @@ export function AudioPlayer() {
                 Cancel
               </button>
             </div>
-            <p className="dim text-base mt-2">Playing connects to YouTube, which may collect playback data and use cookies. The video stays visible; playback pauses when this tab is hidden.</p>
+            <p className="dim text-base mt-2">Playing connects to YouTube, which may collect playback data and use cookies. The video stays hidden unless you press Video in the player bar, and playback continues while you work in another app.</p>
           </form>
         )}
 
@@ -1115,7 +1125,7 @@ export function AudioPlayer() {
             </button>
           </div>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
             <button type="button" onClick={() => setIsMuted(!isMuted)} aria-label={isMuted ? 'Unmute' : 'Mute'} className="btn btn-icon btn-ghost">
               {isMuted || volume === 0 ? <VolumeX strokeWidth={2.5} /> : <Volume2 strokeWidth={2.5} />}
             </button>
@@ -1132,6 +1142,17 @@ export function AudioPlayer() {
               className="slider slider-thin !w-20 sm:!w-24"
               aria-label="Volume control"
             />
+            <button
+              type="button"
+              onClick={handleToggleVideo}
+              aria-label={showVideo ? 'Hide video' : 'Show video'}
+              aria-pressed={showVideo}
+              title={showVideo ? 'Video: shown' : 'Video: hidden'}
+              className="btn btn-sm ml-1"
+            >
+              {showVideo ? <Video className="w-4 h-4" strokeWidth={2.5} /> : <VideoOff className="w-4 h-4" strokeWidth={2.5} />}
+              <span>Video</span>
+            </button>
             <button
               type="button"
               onClick={() => {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Check, SquarePen, Trash2, Cloud, CloudOff, RefreshCw, X } from 'lucide-react';
 import { Task, partitionTasks } from '../utils/tasks';
 import { MAX_TASK_TITLE_LENGTH } from '../utils/sync';
@@ -27,6 +27,7 @@ export function TaskList({
   const [newTitle, setNewTitle] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
+  const listRef = useRef<HTMLDivElement>(null);
 
   const { pending, completed } = partitionTasks(tasks);
   const syncLabel = !syncKey
@@ -44,6 +45,8 @@ export function TaskList({
     if (!newTitle.trim()) return;
     onAddTask(newTitle);
     setNewTitle('');
+    // New tasks go to the top, so bring them into view
+    listRef.current?.scrollTo({ top: 0 });
   };
 
   const handleStartEdit = (task: Task) => {
@@ -96,47 +99,100 @@ export function TaskList({
         </button>
       </form>
 
-      {/* Pending */}
-      <div>
-        {pending.length === 0 ? (
-          <p className="dim text-lg py-3 text-center">Nothing to do yet. Type a task above and press Return.</p>
-        ) : (
-          pending.map((task) => (
-            <div key={task.id} className="list-row">
-              {editingId === task.id ? (
-                <>
-                  <input
-                    type="text"
-                    name="edit-task-title"
-                    maxLength={MAX_TASK_TITLE_LENGTH}
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSaveEdit(task.id);
-                      if (e.key === 'Escape') setEditingId(null);
-                    }}
-                    autoFocus
-                    className="field field-sm"
-                    aria-label="Edit task title"
-                  />
-                  <button type="button" onClick={() => handleSaveEdit(task.id)} className="btn btn-sm" aria-label="Save task edit">
-                    <Check className="w-4 h-4" strokeWidth={3} />
-                    <span>Save</span>
-                  </button>
-                  <button type="button" onClick={() => setEditingId(null)} className="btn btn-sm btn-icon" aria-label="Cancel edit">
-                    <X strokeWidth={3} />
-                  </button>
-                </>
-              ) : (
-                <>
+      {/* Fixed height so a long list scrolls instead of stretching the window */}
+      <div ref={listRef} className="task-scroll">
+        {/* Pending */}
+        <div>
+          {pending.length === 0 ? (
+            <p className="dim text-lg py-3 text-center">Nothing to do yet. Type a task above and press Return.</p>
+          ) : (
+            pending.map((task) => (
+              <div key={task.id} className="list-row">
+                {editingId === task.id ? (
+                  <>
+                    <input
+                      type="text"
+                      name="edit-task-title"
+                      maxLength={MAX_TASK_TITLE_LENGTH}
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSaveEdit(task.id);
+                        if (e.key === 'Escape') setEditingId(null);
+                      }}
+                      autoFocus
+                      className="field field-sm"
+                      aria-label="Edit task title"
+                    />
+                    <button type="button" onClick={() => handleSaveEdit(task.id)} className="btn btn-sm" aria-label="Save task edit">
+                      <Check className="w-4 h-4" strokeWidth={3} />
+                      <span>Save</span>
+                    </button>
+                    <button type="button" onClick={() => setEditingId(null)} className="btn btn-sm btn-icon" aria-label="Cancel edit">
+                      <X strokeWidth={3} />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      role="checkbox"
+                      aria-checked={false}
+                      aria-label={`Mark "${task.title}" as completed`}
+                      onClick={() => onToggleTask(task.id)}
+                      className="checkbox"
+                    />
+                    <span
+                      onClick={() => onToggleTask(task.id)}
+                      className="list-title flex-1 min-w-0 break-words text-xl cursor-pointer select-none"
+                    >
+                      {task.title}
+                    </span>
+                    <div className="row-tools flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleStartEdit(task)}
+                        aria-label={`Edit "${task.title}"`}
+                        className="btn btn-icon btn-ghost"
+                      >
+                        <SquarePen strokeWidth={2.5} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteTask(task.id)}
+                        aria-label={`Delete "${task.title}"`}
+                        className="btn btn-icon btn-ghost"
+                      >
+                        <Trash2 strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Completed */}
+        {completed.length > 0 && (
+          <div className="mt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <h3 className="text-lg font-bold">Done</h3>
+              <span className="font-data text-lg dim">({completed.length})</span>
+            </div>
+            <div>
+              {completed.map((task) => (
+                <div key={task.id} className="list-row is-done">
                   <button
                     type="button"
                     role="checkbox"
-                    aria-checked={false}
-                    aria-label={`Mark "${task.title}" as completed`}
+                    aria-checked={true}
+                    aria-label={`Mark "${task.title}" as incomplete`}
                     onClick={() => onToggleTask(task.id)}
                     className="checkbox"
-                  />
+                  >
+                    <X />
+                  </button>
                   <span
                     onClick={() => onToggleTask(task.id)}
                     className="list-title flex-1 min-w-0 break-words text-xl cursor-pointer select-none"
@@ -146,14 +202,6 @@ export function TaskList({
                   <div className="row-tools flex items-center gap-1">
                     <button
                       type="button"
-                      onClick={() => handleStartEdit(task)}
-                      aria-label={`Edit "${task.title}"`}
-                      className="btn btn-icon btn-ghost"
-                    >
-                      <SquarePen strokeWidth={2.5} />
-                    </button>
-                    <button
-                      type="button"
                       onClick={() => onDeleteTask(task.id)}
                       aria-label={`Delete "${task.title}"`}
                       className="btn btn-icon btn-ghost"
@@ -161,54 +209,12 @@ export function TaskList({
                       <Trash2 strokeWidth={2.5} />
                     </button>
                   </div>
-                </>
-              )}
+                </div>
+              ))}
             </div>
-          ))
+          </div>
         )}
       </div>
-
-      {/* Completed */}
-      {completed.length > 0 && (
-        <div className="mt-4">
-          <div className="flex items-center gap-2 mb-1">
-            <h3 className="text-lg font-bold">Done</h3>
-            <span className="font-data text-lg dim">({completed.length})</span>
-          </div>
-          <div>
-            {completed.map((task) => (
-              <div key={task.id} className="list-row is-done">
-                <button
-                  type="button"
-                  role="checkbox"
-                  aria-checked={true}
-                  aria-label={`Mark "${task.title}" as incomplete`}
-                  onClick={() => onToggleTask(task.id)}
-                  className="checkbox"
-                >
-                  <X />
-                </button>
-                <span
-                  onClick={() => onToggleTask(task.id)}
-                  className="list-title flex-1 min-w-0 break-words text-xl cursor-pointer select-none"
-                >
-                  {task.title}
-                </span>
-                <div className="row-tools flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => onDeleteTask(task.id)}
-                    aria-label={`Delete "${task.title}"`}
-                    className="btn btn-icon btn-ghost"
-                  >
-                    <Trash2 strokeWidth={2.5} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </section>
   );
 }

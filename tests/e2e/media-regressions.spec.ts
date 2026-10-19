@@ -12,6 +12,7 @@ test.beforeEach(async ({ page }) => {
         let playlist = config.playerVars.list ? ['playlist-first', 'playlist-next'] : [];
         let index = playlist.length ? 0 : -1;
         let time = config.playerVars.start || 0;
+        let duration = 120;
         let state = -1;
         const frame = document.createElement('iframe');
         frame.width = config.width; frame.height = config.height;
@@ -20,7 +21,7 @@ test.beforeEach(async ({ page }) => {
         const emit = (data: number) => { state = data; config.events.onStateChange({ data, target: player }); };
         const player = {
           setVolume() {}, setLoop() {}, setShuffle() {}, mute() {}, unMute() {},
-          getDuration: () => 120, getCurrentTime: () => time, getPlayerState: () => state,
+          getDuration: () => duration, getCurrentTime: () => time, getPlayerState: () => state,
           getVideoData: () => ({ title: video, isLive: false }),
           getPlaylist: () => playlist, getPlaylistIndex: () => index,
           playVideo() { calls.push(['play', video]); emit(1); },
@@ -29,7 +30,7 @@ test.beforeEach(async ({ page }) => {
           seekTo(seconds: number) { if (state !== -1 && state !== 5) time = seconds; calls.push(['seek', seconds]); },
           nextVideo() { index++; video = playlist[index] || ''; time = 0; calls.push(['nextVideo']); emit(-1); emit(1); },
           previousVideo() {}, playVideoAt(i: number) { index = i; },
-          loadVideoById(value: any) { video = value.videoId; time = value.startSeconds; playlist = []; calls.push(['load', video]); emit(1); },
+          loadVideoById(value: any) { video = value.videoId; time = value.startSeconds; duration = 120; playlist = []; calls.push(['load', video]); emit(1); },
           cueVideoById(value: any) { video = value.videoId; time = value.startSeconds; playlist = []; calls.push(['cue', video]); emit(5); },
           loadPlaylist(value: any) { playlist = ['playlist-first', 'playlist-next']; index = 0; video = playlist[0]!; time = value.startSeconds; emit(1); },
           cuePlaylist(value: any) { this.loadPlaylist(value); emit(5); },
@@ -38,6 +39,8 @@ test.beforeEach(async ({ page }) => {
         (window as any).__mediaEmit = emit;
         (window as any).__mediaSetTime = (seconds: number) => { time = seconds; };
         (window as any).__mediaPosition = () => ({ video, time });
+        // A reset player reports time 0 and length 0
+        (window as any).__mediaReset = () => { time = 0; duration = 0; };
         (window as any).__mediaError = () => config.events.onError({ data: 100, target: player });
         (window as any).__mediaReady = () => config.events.onReady({ target: player });
         if (!(window as any).__mediaDeferReady) setTimeout((window as any).__mediaReady, 0);
@@ -369,9 +372,10 @@ test('a player iOS reset in the background resumes from the last position, not f
 
   // iOS tears the video down: YouTube reports a cued video at 0
   await setVisibility(page, 'hidden');
-  await page.evaluate(() => { (window as any).__mediaSetTime(0); (window as any).__mediaEmit(5); });
+  await page.evaluate(() => { (window as any).__mediaReset(); (window as any).__mediaEmit(5); });
   await expect(page.getByRole('button', { name: 'Play music', exact: true })).toBeVisible();
   await expect(page.getByText('01:15', { exact: true })).toBeVisible();
+  await expect(page.getByText('02:00', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('pomodoro_music_playback')!).position)).toBe(75);
 
   await setVisibility(page, 'visible');

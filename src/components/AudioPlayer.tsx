@@ -556,12 +556,13 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
       } else if (event.data === 2) {
         setIsPlaying(false);
       } else if (event.data === 5) {
-        // Every source load sets this to its start; a later cue keeps the last position
+        // Every source load resets the position and length; a later cue, from a reset
+        // player that reports 0 for both, keeps the last ones
         const startSeconds = Math.max(0, resumePositionRef.current);
         setIsPlaying(false);
         setCurrentTime(startSeconds);
         setSeekPreview(startSeconds);
-        setDuration(event.target.getDuration?.() || 0);
+        setDuration(previous => event.target.getDuration?.() || previous);
       } else if (event.data === 0) {
         resumeLateStopUntilRef.current = 0;
         if (repeatModeRef.current === 'one') {

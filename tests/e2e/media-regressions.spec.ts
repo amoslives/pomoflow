@@ -24,13 +24,14 @@ test.beforeEach(async ({ page }) => {
           getDuration: () => duration, getCurrentTime: () => time, getPlayerState: () => state,
           getVideoData: () => ({ title: video, isLive: false }),
           getPlaylist: () => playlist, getPlaylistIndex: () => index,
-          playVideo() { calls.push(['play', video]); emit(1); },
+          // Like iOS before a tap inside the video, a blocked player stays unstarted
+          playVideo() { calls.push(['play', video]); if (!(window as any).__mediaBlockPlay) emit(1); },
           pauseVideo() { calls.push(['pause', video]); emit(2); }, stopVideo() { emit(2); },
           // Like YouTube, a reset (unstarted or cued) player ignores seeks and plays from zero
           seekTo(seconds: number) { if (state !== -1 && state !== 5) time = seconds; calls.push(['seek', seconds]); },
           nextVideo() { index++; video = playlist[index] || ''; time = 0; calls.push(['nextVideo']); emit(-1); emit(1); },
           previousVideo() {}, playVideoAt(i: number) { index = i; },
-          loadVideoById(value: any) { video = value.videoId; time = value.startSeconds; duration = 120; playlist = []; calls.push(['load', video]); emit(1); },
+          loadVideoById(value: any) { video = value.videoId; time = value.startSeconds; duration = 120; playlist = []; calls.push(['load', video]); emit((window as any).__mediaBlockPlay ? -1 : 1); },
           cueVideoById(value: any) { video = value.videoId; time = value.startSeconds; playlist = []; calls.push(['cue', video]); emit(5); },
           loadPlaylist(value: any) { playlist = ['playlist-first', 'playlist-next']; index = 0; video = playlist[0]!; time = value.startSeconds; emit(1); },
           cuePlaylist(value: any) { this.loadPlaylist(value); emit(5); },
@@ -348,6 +349,30 @@ test('a pause from YouTube well before leaving is not resumed', async ({ page })
   await setVisibility(page, 'visible');
   expect(await mediaCalls(page)).toEqual([]);
   await expect(page.getByRole('button', { name: 'Play music', exact: true })).toBeVisible();
+});
+
+test('when YouTube is not allowed to start, the video is shown so its play button can be tapped', async ({ page }) => {
+  await page.evaluate(() => { (window as any).__mediaBlockPlay = true; });
+  await page.getByRole('button', { name: 'Load from YouTube' }).click();
+  await page.getByLabel('YouTube URL, video ID or playlist URL').fill('aaaaaaaaaaa');
+  await page.getByRole('button', { name: 'Load & play' }).click();
+  await expect(page.getByRole('button', { name: 'Play music', exact: true })).toBeVisible({ timeout: 6000 });
+  await expect(page.getByRole('alert')).toContainText('Tap play in the video');
+  await expect(page.getByRole('button', { name: 'Show video' })).toHaveAttribute('aria-pressed', 'true');
+
+  // The tap inside the video starts the music, and the video is hidden again
+  await page.evaluate(() => (window as any).__mediaEmit(1));
+  await expect(page.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Show video' })).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('music that starts normally gets no tap prompt', async ({ page }) => {
+  await playSource(page);
+  await page.waitForTimeout(3500);
+  await expect(page.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Show video' })).toHaveAttribute('aria-pressed', 'false');
 });
 
 test('a background pause delivered just after return also resumes', async ({ page }) => {

@@ -183,6 +183,10 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
   showVideoRef.current = showVideo && !compact;
   const isPlayingRef = useRef(isPlaying);
   isPlayingRef.current = isPlaying;
+  const isLiveRef = useRef(isLive);
+  isLiveRef.current = isLive;
+  const nativePlaylistIndexRef = useRef(nativePlaylistIndex);
+  nativePlaylistIndexRef.current = nativePlaylistIndex;
   const wasPlayingWhenHiddenRef = useRef(false);
   // Until this time, a pause or reset from YouTube is the system's background stop arriving late
   const resumeLateStopUntilRef = useRef(0);
@@ -244,15 +248,23 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
     ytPlayerRef.current = null;
   }, []);
 
-  // Play the loaded source from the last known position. YouTube restarts a reset (unstarted or cued) video from zero.
+  // Play the loaded source from the last known position. A reset (unstarted or cued) player ignores
+  // seekTo and restarts from zero, so reload the source at that position instead.
+  // A live stream just plays, which returns it to the live edge.
   const continuePlayback = (player: any) => {
     const playerState = typeof player.getPlayerState === 'function' ? player.getPlayerState() : null;
+    const active = activeSourceRef.current;
     if (
-      resumePositionRef.current > 0
+      active
+      && !isLiveRef.current
+      && resumePositionRef.current > 0
       && (playerState === -1 || playerState === 5)
-      && typeof player.seekTo === 'function'
     ) {
-      player.seekTo(resumePositionRef.current, true);
+      loadYouTubeSource(active.track, {
+        startSeconds: resumePositionRef.current,
+        playlistIndex: nativePlaylistIndexRef.current,
+      });
+      return;
     }
     player.playVideo();
   };
@@ -367,6 +379,7 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
   // Play next track
   const handleNextTrack = useCallback(() => {
     repeatingPlaylistIndexRef.current = null;
+    resumeLateStopUntilRef.current = 0;
     if (queue.length === 0) return;
 
     // If native YT playlist is playing and has multiple tracks, try native nextVideo
@@ -412,6 +425,7 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
   // Play previous track
   const handlePrevTrack = useCallback(() => {
     repeatingPlaylistIndexRef.current = null;
+    resumeLateStopUntilRef.current = 0;
     if (queue.length === 0) return;
 
     if (currentTrack?.sourceType === 'youtube-playlist' && ytPlayerRef.current && typeof ytPlayerRef.current.previousVideo === 'function') {
@@ -549,6 +563,7 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
         setSeekPreview(startSeconds);
         setDuration(event.target.getDuration?.() || 0);
       } else if (event.data === 0) {
+        resumeLateStopUntilRef.current = 0;
         if (repeatModeRef.current === 'one') {
           if (activeSourceRef.current.track.sourceType === 'youtube-playlist') {
             const index = event.target.getPlaylistIndex?.() ?? -1;
@@ -691,14 +706,14 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
       timerIntervalRef.current = window.setInterval(() => {
         if (currentTrack && ytPlayerRef.current) {
           try {
+            // A reset (unstarted or cued) player reports time 0 and loses the video data;
+            // keep the last readings so a resume can continue from them
+            const playerState = ytPlayerRef.current.getPlayerState?.();
+            if (playerState === -1 || playerState === 5) return;
             if (typeof ytPlayerRef.current.getCurrentTime === 'function') {
-              const playerState = ytPlayerRef.current.getPlayerState?.();
-              // A reset (unstarted or cued) player reports 0; keep the last position
-              if (playerState !== -1 && playerState !== 5) {
-                const curr = ytPlayerRef.current.getCurrentTime() || 0;
-                resumePositionRef.current = curr;
-                if (!isSeeking) setCurrentTime(curr);
-              }
+              const curr = ytPlayerRef.current.getCurrentTime() || 0;
+              resumePositionRef.current = curr;
+              if (!isSeeking) setCurrentTime(curr);
               setDuration(ytPlayerRef.current.getDuration() || 0);
             }
             if (typeof ytPlayerRef.current.getVideoData === 'function') {
@@ -884,6 +899,7 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
 
   const handlePlayNativePlaylistTrack = (index: number) => {
     repeatingPlaylistIndexRef.current = null;
+    resumeLateStopUntilRef.current = 0;
     if (!ytPlayerRef.current || typeof ytPlayerRef.current.playVideoAt !== 'function') return;
     try {
       ytPlayerRef.current.playVideoAt(index);

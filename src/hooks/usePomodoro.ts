@@ -110,14 +110,32 @@ export function usePomodoro() {
     commit({ ...value, endsAt: null, remaining: (value.mode === 'work' ? value.workMinutes : value.breakMinutes) * 60 });
   }, [commit]);
 
-  const changeDuration = (mode: 'work' | 'break', minutes: number) => {
+  const startWork = useCallback(() => {
     const value = current.current;
-    if (value.endsAt !== null || !Number.isInteger(minutes) || minutes < 1 || minutes > (mode === 'work' ? 90 : 45)) return;
-    commit({ ...value, [mode === 'work' ? 'workMinutes' : 'breakMinutes']: minutes,
-      remaining: value.mode === mode ? minutes * 60 : value.remaining });
+    if (value.mode !== 'break') return;
+    const remaining = value.workMinutes * 60;
+    playClickSound();
+    commit({ ...value, mode: 'work', remaining, endsAt: Date.now() + remaining * 1000 });
+  }, [commit]);
+
+  const changeDuration = (mode: 'work' | 'break', minutes: number) => {
+    tick();
+    const value = current.current;
+    const maximum = mode === 'work' ? 90 : 45;
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > maximum) return;
+    const durationKey = mode === 'work' ? 'workMinutes' : 'breakMinutes';
+    if (value.mode !== mode || value.endsAt === null) {
+      commit({ ...value, [durationKey]: minutes,
+        remaining: value.mode === mode ? minutes * 60 : value.remaining });
+      return;
+    }
+
+    const endsAt = value.endsAt + (minutes - value[durationKey]) * 60 * 1000;
+    commit({ ...value, [durationKey]: minutes, endsAt, remaining: secondsRemaining(endsAt) });
+    if (endsAt <= Date.now()) tick();
   };
 
-  return { ...session, timeLeft, isRunning: session.endsAt !== null, toggleTimer, resetTimer,
+  return { ...session, timeLeft, isRunning: session.endsAt !== null, toggleTimer, resetTimer, startWork,
     handleWorkDurationChange: (minutes: number) => changeDuration('work', minutes),
     handleBreakDurationChange: (minutes: number) => changeDuration('break', minutes) };
 }

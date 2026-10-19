@@ -30,6 +30,54 @@ test('a suspended timer catches up, survives reload, and credits once', async ({
   await expect(page.getByText('1 timer completed', { exact: true })).toBeVisible();
 });
 
+test('running timer durations remain adjustable and preserve elapsed time', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/');
+  await page.getByRole('button', { name: /^start$/i }).click();
+  await page.clock.fastForward(5 * 60 * 1000);
+  await expect(page.getByText('20:00', { exact: true })).toBeVisible();
+
+  const workDuration = page.getByLabel('Work duration slider in minutes');
+  const breakDuration = page.getByLabel('Break duration slider in minutes');
+  await expect(workDuration).toBeEnabled();
+  await expect(breakDuration).toBeEnabled();
+  await breakDuration.fill('10');
+  await expect(page.getByText('20:00', { exact: true })).toBeVisible();
+  await workDuration.fill('30');
+  await expect(page.getByText('25:00', { exact: true })).toBeVisible();
+
+  await expect.poll(() => page.evaluate(() => {
+    const session = JSON.parse(localStorage.getItem('pomodoro_session_v2')!);
+    return { workMinutes: session.workMinutes, breakMinutes: session.breakMinutes };
+  })).toEqual({ workMinutes: 30, breakMinutes: 10 });
+
+  await page.clock.fastForward(25 * 60 * 1000);
+  await expect(page.locator('.badge')).toHaveText('Break');
+  await expect(page.getByText('10:00', { exact: true })).toBeVisible();
+  await page.clock.fastForward(2 * 60 * 1000);
+  await breakDuration.fill('15');
+  await expect(page.getByText('13:00', { exact: true })).toBeVisible();
+});
+
+test('a running break can be abandoned for a fresh work session', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/');
+  await page.getByRole('button', { name: /^start$/i }).click();
+  await page.clock.fastForward(25 * 60 * 1000);
+  await expect(page.locator('.badge')).toHaveText('Break');
+  await expect(page.getByText('1 timer completed', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Start Work', exact: true }).click();
+  await expect(page.locator('.badge')).toHaveText('Work');
+  await expect(page.getByText('25:00', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^pause$/i })).toBeVisible();
+  await expect(page.getByText('1 timer completed', { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => {
+    const session = JSON.parse(localStorage.getItem('pomodoro_session_v2')!);
+    return { mode: session.mode, isRunning: session.endsAt !== null };
+  })).toEqual({ mode: 'work', isRunning: true });
+});
+
 test('browser shortcuts, repeat, and modal keys do not control the timer', async ({ page }) => {
   await page.goto('/');
   const prevented = await page.evaluate(() => {

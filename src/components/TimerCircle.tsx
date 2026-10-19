@@ -1,4 +1,4 @@
-import { Play, Pause, RotateCcw } from 'lucide-react';
+import { Play, Pause, RotateCcw, SkipForward } from 'lucide-react';
 import { formatTime, calculateProgress } from '../utils/timer';
 
 interface TimerCircleProps {
@@ -10,6 +10,7 @@ interface TimerCircleProps {
   breakMinutes: number;
   onToggleStart: () => void;
   onReset: () => void;
+  onStartWork: () => void;
   onChangeWorkMinutes: (val: number) => void;
   onChangeBreakMinutes: (val: number) => void;
 }
@@ -23,6 +24,7 @@ export function TimerCircle({
   breakMinutes,
   onToggleStart,
   onReset,
+  onStartWork,
   onChangeWorkMinutes,
   onChangeBreakMinutes,
 }: TimerCircleProps) {
@@ -54,7 +56,7 @@ export function TimerCircle({
       </div>
 
       {/* Buttons */}
-      <div className="flex items-center justify-center gap-4 mt-5">
+      <div className="flex flex-wrap items-center justify-center gap-4 mt-5">
         <button type="button" onClick={onToggleStart} className="btn btn-lg btn-default min-w-36">
           {isRunning ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current" />}
           <span>{isRunning ? 'Pause' : 'Start'}</span>
@@ -63,6 +65,12 @@ export function TimerCircle({
           <RotateCcw className="w-5 h-5" strokeWidth={2.5} />
           <span>Reset</span>
         </button>
+        {mode === 'break' && (
+          <button type="button" onClick={onStartWork} className="btn btn-lg">
+            <SkipForward className="w-5 h-5 fill-current" />
+            <span>Start Work</span>
+          </button>
+        )}
       </div>
 
       {/* Interval sliders */}
@@ -74,7 +82,6 @@ export function TimerCircle({
           min="1"
           max="90"
           value={workMinutes}
-          disabled={isRunning}
           onChange={(e) => onChangeWorkMinutes(Number(e.target.value))}
           className="slider"
           aria-label="Work duration slider in minutes"
@@ -88,16 +95,12 @@ export function TimerCircle({
           min="1"
           max="45"
           value={breakMinutes}
-          disabled={isRunning}
           onChange={(e) => onChangeBreakMinutes(Number(e.target.value))}
           className="slider"
           aria-label="Break duration slider in minutes"
         />
         <span className="font-data text-xl w-14 text-right">{breakMinutes} min</span>
       </div>
-      {isRunning && (
-        <p className="dim text-base mt-2">Pause the timer to change the intervals.</p>
-      )}
     </section>
   );
 }

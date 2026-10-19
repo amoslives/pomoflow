@@ -75,7 +75,7 @@ export default function App() {
               <TimerCircle mode={timer.mode} timeLeft={timer.timeLeft}
                 totalDuration={(timer.mode === 'work' ? timer.workMinutes : timer.breakMinutes) * 60}
                 isRunning={timer.isRunning} workMinutes={timer.workMinutes} breakMinutes={timer.breakMinutes}
-                onToggleStart={timer.toggleTimer} onReset={timer.resetTimer}
+                onToggleStart={timer.toggleTimer} onReset={timer.resetTimer} onStartWork={timer.startWork}
                 onChangeWorkMinutes={timer.handleWorkDurationChange} onChangeBreakMinutes={timer.handleBreakDurationChange} />
               <TaskList tasks={sync.tasks} syncKey={sync.syncKey} syncStatus={sync.syncStatus}
                 onOpenSyncModal={() => setIsSyncModalOpen(true)}

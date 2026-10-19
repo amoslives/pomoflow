@@ -29,6 +29,72 @@ test('stats start empty without manual or demo controls', async ({ page }) => {
   await expect(page.getByText(/Log \+1|Demo Data/i)).toHaveCount(0);
 });
 
+test('the jukebox stays off the Stats tab until music is loaded', async ({ page }) => {
+  const player = page.locator('section[aria-label="Music player"]');
+  await expect(player).toBeVisible();
+  await page.getByRole('button', { name: 'Stats', exact: true }).click();
+  await expect(page.getByText(/No focus sessions yet/i)).toBeVisible();
+  await expect(player).toBeHidden();
+  await page.getByRole('button', { name: 'Timer', exact: true }).click();
+  await expect(player).toBeVisible();
+});
+
+test('a labelled Load button opens the YouTube panel', async ({ page }) => {
+  const player = page.locator('section[aria-label="Music player"]');
+  await expect(player.locator('.titlebar button')).toHaveCount(0);
+  await expect(player.getByText('Press Load to add one.')).toBeVisible();
+  const load = player.getByRole('button', { name: 'Load from YouTube' });
+  await expect(load).toHaveText('Load');
+  await load.click();
+  await expect(load).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByLabel('YouTube URL, video ID or playlist URL')).toBeVisible();
+});
+
+test('the task list keeps a fixed height and scrolls', async ({ page }) => {
+  const list = page.locator('.task-scroll');
+  // Fonts change line heights, so measure once they have loaded
+  const heights = () => page.evaluate(async () => {
+    await document.fonts.ready;
+    return {
+      list: document.querySelector('.task-scroll')!.clientHeight,
+      window: document.querySelector('main')!.getBoundingClientRect().height,
+    };
+  });
+  const rowInsideList = (which: 'first' | 'last', selector = '.list-row') => list.evaluate((element, [which, selector]) => {
+    const rows = element.querySelectorAll(selector);
+    const row = (which === 'first' ? rows[0] : rows[rows.length - 1])!;
+    const outer = element.getBoundingClientRect();
+    const inner = row.getBoundingClientRect();
+    // 1px allows for sub-pixel scroll positions
+    return inner.top >= outer.top - 1 && inner.bottom <= outer.bottom + 1;
+  }, [which, selector] as const);
+
+  const empty = await heights();
+  await page.evaluate(() => localStorage.setItem('pomodoro_tasks', JSON.stringify(Array.from({ length: 20 }, (_, i) => ({
+    id: `seed-${i}`, title: `Seeded task ${i + 1}`, completed: i >= 15, createdAt: 20 - i, updatedAt: 20 - i,
+  })))));
+  await page.reload();
+  await expect(page.getByText('Seeded task 1', { exact: true })).toBeVisible();
+  expect(await heights()).toEqual(empty);
+  expect(await list.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  expect(await rowInsideList('first')).toBe(true);
+  expect(await rowInsideList('last')).toBe(false);
+
+  await list.evaluate(element => { element.scrollTop = element.scrollHeight; });
+  expect(await rowInsideList('first')).toBe(false);
+  expect(await rowInsideList('last')).toBe(true);
+  await page.getByRole('button', { name: 'Edit "Seeded task 15"' }).click();
+  await expect(page.getByLabel('Edit task title')).toBeFocused();
+  expect(await rowInsideList('last', '.list-row:has(input[name="edit-task-title"])')).toBe(true);
+  await page.keyboard.press('Escape');
+
+  await page.locator('input[placeholder*="Add a new task"]').fill('Newest task');
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('Newest task', { exact: true })).toBeVisible();
+  expect(await rowInsideList('first')).toBe(true);
+  expect(await heights()).toEqual(empty);
+});
+
 test('system theme follows the OS and cycles through explicit modes', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.reload();

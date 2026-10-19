@@ -115,7 +115,12 @@ function normalizeSavedPlayback(value: unknown, queue: TrackItem[]): SavedPlayba
   };
 }
 
-export function AudioPlayer() {
+interface AudioPlayerProps {
+  // Slim player for views that are not about music; it stays mounted so playback continues
+  compact?: boolean;
+}
+
+export function AudioPlayer({ compact = false }: AudioPlayerProps) {
   const [showSettings, setShowSettings] = useState(false);
   const [showPlaylist, setShowPlaylist] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
@@ -175,13 +180,13 @@ export function AudioPlayer() {
   const settingsRef = useRef({ volume, isMuted, isShuffle, repeatMode });
   settingsRef.current = { volume, isMuted, isShuffle, repeatMode };
   const showVideoRef = useRef(showVideo);
-  showVideoRef.current = showVideo;
+  showVideoRef.current = showVideo && !compact;
   const transportRef = useRef<HTMLDivElement>(null);
 
   const currentTrack: TrackItem | undefined = queue[currentTrackIndex];
   // There is no video to show until YouTube has loaded a track
   const hasVideo = youtubeEnabled && Boolean(currentTrack);
-  const isVideoShown = showVideo && hasVideo;
+  const isVideoShown = showVideo && hasVideo && !compact;
 
   useEffect(() => {
     queueRef.current = queue;
@@ -856,24 +861,35 @@ export function AudioPlayer() {
     }
   };
 
+  const playControls = (
+    <div className="flex items-center gap-1">
+      <button type="button" onClick={handlePrevTrack} aria-label="Previous track" title="Previous track" className="btn btn-icon">
+        <SkipBack className="fill-current" />
+      </button>
+      <button
+        type="button"
+        onClick={handleTogglePlayPause}
+        aria-label={isPlaying ? 'Pause music' : 'Play music'}
+        title={isPlaying ? 'Pause' : 'Play'}
+        className={`btn btn-icon !px-4 ${isPlaying ? 'is-on' : ''}`}
+      >
+        {isPlaying ? <Pause className="fill-current" /> : <Play className="fill-current" />}
+      </button>
+      <button type="button" onClick={handleStop} aria-label="Stop playback" title="Stop playback" className="btn btn-icon">
+        <Square className="fill-current" />
+      </button>
+      <button type="button" onClick={handleNextTrack} aria-label="Next track" title="Next track" className="btn btn-icon">
+        <SkipForward className="fill-current" />
+      </button>
+    </div>
+  );
+
   return (
-    <section className="window w-full mt-5 font-pixel select-none" aria-label="Music player">
+    <section className="window w-full mt-5 font-pixel select-none" aria-label="Music player" hidden={compact && !currentTrack}>
       <div className="titlebar">
         <span className="titlebar-box left" aria-hidden="true" />
         <span className="titlebar-title">Jukebox</span>
-        <button
-          type="button"
-          onClick={() => {
-            setShowSettings(!showSettings);
-            setShowPlaylist(false);
-          }}
-          aria-label="Audio settings and YouTube URL loader"
-          title="Load a YouTube video or playlist"
-          aria-pressed={showSettings}
-          className="titlebar-box right"
-        >
-          <Plus />
-        </button>
+        <span className="titlebar-box right" aria-hidden="true" />
       </div>
 
       <div className="window-body !pt-3 !pb-3">
@@ -884,7 +900,7 @@ export function AudioPlayer() {
           aria-hidden={!isVideoShown}
         />
         {/* Load panel */}
-        {showSettings && (
+        {showSettings && !compact && (
           <form onSubmit={handleAddSource} className="groupbox mb-4 mt-3">
             <div className="groupbox-label">Load from YouTube</div>
             <input
@@ -913,12 +929,12 @@ export function AudioPlayer() {
                 Cancel
               </button>
             </div>
-            <p className="dim text-base mt-2">Playing connects to YouTube, which may collect playback data and use cookies. The video stays hidden unless you press Video in the player bar. Playback continues while you work in another app unless the browser or YouTube pauses it.</p>
+            <p className="dim text-base mt-2">Playing connects to YouTube, which may collect data and cookies.</p>
           </form>
         )}
 
         {/* Queue panel */}
-        {showPlaylist && (
+        {showPlaylist && !compact && (
           <div className="groupbox mb-4 mt-3">
             <div className="groupbox-label">Current Playlist & Queue ({queue.length})</div>
             <div className="groupbox-tools">
@@ -928,7 +944,7 @@ export function AudioPlayer() {
             </div>
 
             {queue.length === 0 ? (
-              <p className="dim text-lg py-2 text-center">The queue is empty. Use the + box in the title bar to load something.</p>
+              <p className="dim text-lg py-2 text-center">The queue is empty. Press Load to add a video or playlist.</p>
             ) : (
               <div className="max-h-80 overflow-y-auto">
                 {queue.map((track, idx) => {
@@ -1042,141 +1058,142 @@ export function AudioPlayer() {
           </div>
         )}
 
-        {/* Now playing */}
-        <div className="field field-sm font-data text-lg truncate !bg-transparent" aria-live="polite">
-          {currentTrack ? (
-            <>
-              <span className="font-pixel text-sm mr-2">{isPlaying ? 'Playing' : 'Loaded'}</span>
-              <span>{displayTitle}</span>
-            </>
-          ) : (
-            <span className="dim">No track loaded</span>
-          )}
-        </div>
-
-        {/* Seek */}
-        <div className="flex items-center gap-3 mt-2">
-          <span className="font-data text-lg w-12 text-right">{isLive ? 'LIVE' : formatTime(displayedTime)}</span>
-          <input
-            type="range"
-            name="seek"
-            min="0"
-            max={duration || 100}
-            step="1"
-            value={isLive ? 0 : displayedTime}
-            onPointerDown={() => {
-              setSeekPreview(currentTime);
-              setIsSeeking(true);
-            }}
-            onChange={(e) => {
-              const newTime = Number(e.target.value);
-              setSeekPreview(newTime);
-              setIsSeeking(true);
-            }}
-            onPointerUp={(e) => commitSeek(Number(e.currentTarget.value))}
-            onKeyUp={(e) => commitSeek(Number(e.currentTarget.value))}
-            onBlur={(e) => isSeeking && commitSeek(Number(e.currentTarget.value))}
-            disabled={!currentTrack || isLive || duration <= 0}
-            className="slider slider-seek slider-thin flex-1"
-            style={{ '--seek-progress': `${seekPercent}%` } as React.CSSProperties}
-            aria-label={isLive ? 'Live stream progress is not seekable' : 'Seek through current track'}
-            aria-valuetext={isLive ? 'Live' : `${formatTime(displayedTime)} of ${formatTime(duration)}`}
-          />
-          <span className="font-data text-lg w-12">{isLive ? 'LIVE' : formatTime(duration)}</span>
-        </div>
-
-        {/* Transport */}
-        <div ref={transportRef} className="flex flex-wrap items-center gap-2 mt-3">
-          <div className="flex items-center gap-1">
-            <button type="button" onClick={handlePrevTrack} aria-label="Previous track" title="Previous track" className="btn btn-icon">
-              <SkipBack className="fill-current" />
-            </button>
-            <button
-              type="button"
-              onClick={handleTogglePlayPause}
-              aria-label={isPlaying ? 'Pause music' : 'Play music'}
-              title={isPlaying ? 'Pause' : 'Play'}
-              className={`btn btn-icon !px-4 ${isPlaying ? 'is-on' : ''}`}
-            >
-              {isPlaying ? <Pause className="fill-current" /> : <Play className="fill-current" />}
-            </button>
-            <button type="button" onClick={handleStop} aria-label="Stop playback" title="Stop playback" className="btn btn-icon">
-              <Square className="fill-current" />
-            </button>
-            <button type="button" onClick={handleNextTrack} aria-label="Next track" title="Next track" className="btn btn-icon">
-              <SkipForward className="fill-current" />
-            </button>
+        {/* Now playing, with Load beside it, or the play controls in compact mode */}
+        <div className="flex items-center gap-2">
+          <div className="field field-sm font-data text-lg truncate !bg-transparent flex-1" aria-live="polite">
+            {currentTrack ? (
+              <>
+                <span className="font-pixel text-sm mr-2">{isPlaying ? 'Playing' : 'Loaded'}</span>
+                <span>{displayTitle}</span>
+              </>
+            ) : (
+              <span className="dim">No track loaded. Press Load to add one.</span>
+            )}
           </div>
-
-          <div className="flex items-center gap-1 ml-1">
-            <button
-              type="button"
-              onClick={handleToggleShuffle}
-              aria-label={isShuffle ? 'Disable shuffle mode' : 'Enable shuffle mode'}
-              aria-pressed={isShuffle}
-              title={isShuffle ? 'Shuffle: on' : 'Shuffle: off'}
-              className="btn btn-icon"
-            >
-              <Shuffle strokeWidth={2.5} />
-            </button>
-            <button
-              type="button"
-              onClick={handleCycleRepeat}
-              aria-label={`Repeat mode: ${repeatMode}`}
-              aria-pressed={repeatMode !== 'off'}
-              title={`Repeat: ${repeatMode}`}
-              className="btn btn-icon"
-            >
-              {repeatMode === 'one' ? <Repeat1 strokeWidth={2.5} /> : <Repeat strokeWidth={2.5} />}
-            </button>
-          </div>
-
-          <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
-            <button type="button" onClick={() => setIsMuted(!isMuted)} aria-label={isMuted ? 'Unmute' : 'Mute'} className="btn btn-icon btn-ghost">
-              {isMuted || volume === 0 ? <VolumeX strokeWidth={2.5} /> : <Volume2 strokeWidth={2.5} />}
-            </button>
-            <input
-              type="range"
-              name="volume"
-              min="0"
-              max="100"
-              value={isMuted ? 0 : volume}
-              onChange={(e) => {
-                setVolume(Number(e.target.value));
-                if (isMuted) setIsMuted(false);
-              }}
-              className="slider slider-thin !w-20 sm:!w-24"
-              aria-label="Volume control"
-            />
-            <button
-              type="button"
-              onClick={handleToggleVideo}
-              disabled={!hasVideo}
-              aria-label="Show video"
-              aria-pressed={isVideoShown}
-              title={isVideoShown ? 'Video: shown' : 'Video: hidden'}
-              className="btn btn-sm ml-1"
-            >
-              {isVideoShown ? <Video className="w-4 h-4" strokeWidth={2.5} /> : <VideoOff className="w-4 h-4" strokeWidth={2.5} />}
-              <span>Video</span>
-            </button>
+          {compact ? playControls : (
             <button
               type="button"
               onClick={() => {
-                setShowPlaylist(!showPlaylist);
-                setShowSettings(false);
+                setShowSettings(!showSettings);
+                setShowPlaylist(false);
               }}
-              aria-label="Toggle playlist and queue"
-              aria-pressed={showPlaylist}
-              title="Playlist & queue"
-              className="btn btn-sm ml-1"
+              aria-label="Load from YouTube"
+              aria-pressed={showSettings}
+              title="Load a YouTube video or playlist"
+              className="btn btn-sm"
             >
-              <ListMusic className="w-4 h-4" strokeWidth={2.5} />
-              <span>Queue</span>
-              <span className="font-data text-base">{queue.length}</span>
+              <Plus className="w-4 h-4" strokeWidth={2.5} />
+              <span>Load</span>
             </button>
-          </div>
+          )}
         </div>
+
+        {!compact && <>
+          {/* Seek */}
+          <div className="flex items-center gap-3 mt-2">
+            <span className="font-data text-lg w-12 text-right">{isLive ? 'LIVE' : formatTime(displayedTime)}</span>
+            <input
+              type="range"
+              name="seek"
+              min="0"
+              max={duration || 100}
+              step="1"
+              value={isLive ? 0 : displayedTime}
+              onPointerDown={() => {
+                setSeekPreview(currentTime);
+                setIsSeeking(true);
+              }}
+              onChange={(e) => {
+                const newTime = Number(e.target.value);
+                setSeekPreview(newTime);
+                setIsSeeking(true);
+              }}
+              onPointerUp={(e) => commitSeek(Number(e.currentTarget.value))}
+              onKeyUp={(e) => commitSeek(Number(e.currentTarget.value))}
+              onBlur={(e) => isSeeking && commitSeek(Number(e.currentTarget.value))}
+              disabled={!currentTrack || isLive || duration <= 0}
+              className="slider slider-seek slider-thin flex-1"
+              style={{ '--seek-progress': `${seekPercent}%` } as React.CSSProperties}
+              aria-label={isLive ? 'Live stream progress is not seekable' : 'Seek through current track'}
+              aria-valuetext={isLive ? 'Live' : `${formatTime(displayedTime)} of ${formatTime(duration)}`}
+            />
+            <span className="font-data text-lg w-12">{isLive ? 'LIVE' : formatTime(duration)}</span>
+          </div>
+
+          {/* Transport */}
+          <div ref={transportRef} className="flex flex-wrap items-center gap-2 mt-3">
+            {playControls}
+
+            <div className="flex items-center gap-1 ml-1">
+              <button
+                type="button"
+                onClick={handleToggleShuffle}
+                aria-label={isShuffle ? 'Disable shuffle mode' : 'Enable shuffle mode'}
+                aria-pressed={isShuffle}
+                title={isShuffle ? 'Shuffle: on' : 'Shuffle: off'}
+                className="btn btn-icon"
+              >
+                <Shuffle strokeWidth={2.5} />
+              </button>
+              <button
+                type="button"
+                onClick={handleCycleRepeat}
+                aria-label={`Repeat mode: ${repeatMode}`}
+                aria-pressed={repeatMode !== 'off'}
+                title={`Repeat: ${repeatMode}`}
+                className="btn btn-icon"
+              >
+                {repeatMode === 'one' ? <Repeat1 strokeWidth={2.5} /> : <Repeat strokeWidth={2.5} />}
+              </button>
+            </div>
+
+            <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
+              <button type="button" onClick={() => setIsMuted(!isMuted)} aria-label={isMuted ? 'Unmute' : 'Mute'} className="btn btn-icon btn-ghost">
+                {isMuted || volume === 0 ? <VolumeX strokeWidth={2.5} /> : <Volume2 strokeWidth={2.5} />}
+              </button>
+              <input
+                type="range"
+                name="volume"
+                min="0"
+                max="100"
+                value={isMuted ? 0 : volume}
+                onChange={(e) => {
+                  setVolume(Number(e.target.value));
+                  if (isMuted) setIsMuted(false);
+                }}
+                className="slider slider-thin !w-20 sm:!w-24"
+                aria-label="Volume control"
+              />
+              <button
+                type="button"
+                onClick={handleToggleVideo}
+                disabled={!hasVideo}
+                aria-label="Show video"
+                aria-pressed={isVideoShown}
+                title={isVideoShown ? 'Video: shown' : 'Video: hidden'}
+                className="btn btn-sm ml-1"
+              >
+                {isVideoShown ? <Video className="w-4 h-4" strokeWidth={2.5} /> : <VideoOff className="w-4 h-4" strokeWidth={2.5} />}
+                <span>Video</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPlaylist(!showPlaylist);
+                  setShowSettings(false);
+                }}
+                aria-label="Toggle playlist and queue"
+                aria-pressed={showPlaylist}
+                title="Playlist & queue"
+                className="btn btn-sm ml-1"
+              >
+                <ListMusic className="w-4 h-4" strokeWidth={2.5} />
+                <span>Queue</span>
+                <span className="font-data text-base">{queue.length}</span>
+              </button>
+            </div>
+          </div>
+        </>}
 
         {playbackError && (
           <p role="alert" className="mt-2 text-base font-bold">

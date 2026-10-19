@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('a source submitted before API readiness starts when the API becomes ready', async ({ page }) => {
   await page.route('https://www.youtube.com/iframe_api', (route) => route.abort());
   await page.goto('/');
-  await page.locator('button[aria-label="Audio settings and YouTube URL loader"]').click();
+  await page.locator('button[aria-label="Load from YouTube"]').click();
   await page.locator('input[placeholder*="Paste YouTube"]').fill('jfKfPfyJRdk');
   await page.getByRole('button', { name: /load & play/i }).click();
 
@@ -70,7 +70,7 @@ test('refresh restores the active track and playback position without autoplay',
   await page.goto('/');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.locator('button[aria-label="Audio settings and YouTube URL loader"]').click();
+  await page.locator('button[aria-label="Load from YouTube"]').click();
   await page.locator('input[placeholder*="Paste YouTube"]').fill('jfKfPfyJRdk');
   await page.getByRole('button', { name: /load & play/i }).click();
   await expect(page.locator('button[aria-label="Pause music"]')).toBeVisible();

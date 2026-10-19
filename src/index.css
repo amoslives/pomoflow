@@ -295,6 +295,16 @@ body {
   .list-row:hover .row-tools, .list-row:focus-within .row-tools { opacity: 1; }
 }
 
+/* Task list: fixed height, scrolls once the tasks overflow it */
+.task-scroll {
+  height: 264px;
+  overflow-y: auto;
+  /* Focused rows scroll into view with their padding, not just the field */
+  scroll-padding-block: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink) var(--paper);
+}
+
 /* ---------- Timer display ---------- */
 .lcd {
   font-family: var(--font-data);

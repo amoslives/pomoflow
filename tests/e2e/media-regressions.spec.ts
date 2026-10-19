@@ -330,6 +330,26 @@ test('music the system paused in the background resumes on return', async ({ pag
   await expect(page.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
 });
 
+test('a pause iOS reports just before hiding the page also resumes on return', async ({ page }) => {
+  await playSource(page);
+  // iOS stops the media first, then reports the page hidden
+  await page.evaluate(() => (window as any).__mediaEmit(2));
+  await setVisibility(page, 'hidden');
+  await setVisibility(page, 'visible');
+  expect(await mediaCalls(page)).toEqual([['play', 'aaaaaaaaaaa']]);
+  await expect(page.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
+});
+
+test('a pause from YouTube well before leaving is not resumed', async ({ page }) => {
+  await playSource(page);
+  await page.evaluate(() => (window as any).__mediaEmit(2));
+  await page.waitForTimeout(1100);
+  await setVisibility(page, 'hidden');
+  await setVisibility(page, 'visible');
+  expect(await mediaCalls(page)).toEqual([]);
+  await expect(page.getByRole('button', { name: 'Play music', exact: true })).toBeVisible();
+});
+
 test('a background pause delivered just after return also resumes', async ({ page }) => {
   await playSource(page);
   await setVisibility(page, 'hidden');

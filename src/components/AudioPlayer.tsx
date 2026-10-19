@@ -190,6 +190,9 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
   const wasPlayingWhenHiddenRef = useRef(false);
   // Until this time, a pause or reset from YouTube is the system's background stop arriving late
   const resumeLateStopUntilRef = useRef(0);
+  // When YouTube last paused or reset by itself, and whether music was playing then.
+  // iOS stops the media just before it reports the page hidden.
+  const lastPlayerStopRef = useRef({ at: 0, wasPlaying: false });
   const transportRef = useRef<HTMLDivElement>(null);
 
   const currentTrack: TrackItem | undefined = queue[currentTrackIndex];
@@ -274,7 +277,8 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
-        wasPlayingWhenHiddenRef.current = isPlayingRef.current;
+        const stop = lastPlayerStopRef.current;
+        wasPlayingWhenHiddenRef.current = isPlayingRef.current || (stop.wasPlaying && Date.now() - stop.at < 1000);
         resumeLateStopUntilRef.current = 0;
         return;
       }
@@ -526,6 +530,9 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
 
     const onPlayerStateChange = (event: any) => {
       if (event.target !== ytPlayerRef.current || !activeSourceRef.current) return;
+      if (event.data === 2 || event.data === -1 || event.data === 5) {
+        lastPlayerStopRef.current = { at: Date.now(), wasPlaying: isPlayingRef.current };
+      }
       if ((event.data === 2 || event.data === -1 || event.data === 5) && Date.now() < resumeLateStopUntilRef.current) {
         resumeLateStopUntilRef.current = 0;
         setIsPlaying(false);
@@ -758,6 +765,8 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
           ytPlayerRef.current.pauseVideo();
         } catch {}
       }
+      // A pause the user chose is not a background stop
+      lastPlayerStopRef.current = { at: 0, wasPlaying: false };
       setIsPlaying(false);
     } else {
       if (ytPlayerRef.current && typeof ytPlayerRef.current.playVideo === 'function') {
@@ -781,6 +790,7 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
         ytPlayerRef.current.stopVideo();
       } catch {}
     }
+    lastPlayerStopRef.current = { at: 0, wasPlaying: false };
     setIsPlaying(false);
     setCurrentTime(0);
     setSeekPreview(0);

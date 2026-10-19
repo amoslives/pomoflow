@@ -193,6 +193,10 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
   // When YouTube last paused or reset by itself, and whether music was playing then.
   // iOS stops the media just before it reports the page hidden.
   const lastPlayerStopRef = useRef({ at: 0, wasPlaying: false });
+  const videoChosenRef = useRef(showVideo);
+  videoChosenRef.current = showVideo;
+  // The video was shown only so its play button could be tapped; hide it once music starts
+  const videoShownForTapRef = useRef(false);
   const transportRef = useRef<HTMLDivElement>(null);
 
   const currentTrack: TrackItem | undefined = queue[currentTrackIndex];
@@ -300,6 +304,26 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
+
+  // iOS starts a cross-origin video only after a tap inside it. If YouTube has not started
+  // 3 s after the app asked it to play, show the video so its own play button can be tapped.
+  useEffect(() => {
+    if (!isPlaying) return;
+    const timer = window.setTimeout(() => {
+      const playerState = ytPlayerRef.current?.getPlayerState?.();
+      if ((playerState !== -1 && playerState !== 5) || document.visibilityState === 'hidden') return;
+      setIsPlaying(false);
+      setPlaybackError('Tap play in the video to start. This browser starts YouTube only after a tap on the video itself.');
+      if (!videoChosenRef.current) {
+        videoShownForTapRef.current = true;
+        setShowVideo(true);
+        window.requestAnimationFrame(() => {
+          document.getElementById('youtube-player-host')?.scrollIntoView({ block: 'nearest' });
+        });
+      }
+    }, 3000);
+    return () => window.clearTimeout(timer);
+  }, [isPlaying, currentTrackIndex]);
 
   // Update volume
   useEffect(() => {
@@ -550,6 +574,10 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
         }
         setIsPlaying(true);
         setPlaybackError('');
+        if (videoShownForTapRef.current) {
+          videoShownForTapRef.current = false;
+          setShowVideo(false);
+        }
         const playingTrack = queueRef.current[currentTrackIndexRef.current];
         if (playingTrack) failedTrackIdsRef.current.delete(playingTrack.id);
         syncNativePlaylist(event.target);
@@ -810,6 +838,7 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
 
   // Show or hide the video while the media bar keeps playing
   const handleToggleVideo = () => {
+    videoShownForTapRef.current = false;
     const next = !showVideo;
     showVideoRef.current = next;
     setShowVideo(next);

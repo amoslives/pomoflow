@@ -38,7 +38,7 @@ test('running timer durations remain adjustable and preserve elapsed time', asyn
   await expect(page.getByText('20:00', { exact: true })).toBeVisible();
 
   const workDuration = page.getByLabel('Work duration slider in minutes');
-  const breakDuration = page.getByLabel('Break duration slider in minutes');
+  const breakDuration = page.getByLabel('Break duration slider in minutes', { exact: true });
   await expect(workDuration).toBeEnabled();
   await expect(breakDuration).toBeEnabled();
   await breakDuration.fill('10');
@@ -157,7 +157,7 @@ test('dragging a running timer below the time already spent keeps the session go
   await expect(page.locator('.badge')).toHaveText('Break');
   await expect(page.getByText('1 timer completed', { exact: true })).toBeVisible();
 
-  const breakDuration = page.getByLabel('Break duration slider in minutes');
+  const breakDuration = page.getByLabel('Break duration slider in minutes', { exact: true });
   await page.clock.fastForward(2 * 60 * 1000);
   await breakDuration.focus();
   for (let step = 0; step < 5; step++) await breakDuration.press('ArrowLeft');

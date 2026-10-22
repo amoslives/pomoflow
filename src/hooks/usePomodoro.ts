@@ -130,9 +130,12 @@ export function usePomodoro() {
       return;
     }
 
-    const endsAt = value.endsAt + (minutes - value[durationKey]) * 60 * 1000;
-    commit({ ...value, [durationKey]: minutes, endsAt, remaining: secondsRemaining(endsAt) });
-    if (endsAt <= Date.now()) tick();
+    // Leave at least a minute on a running timer, so dragging the slider down cannot end the session
+    const elapsed = value[durationKey] * 60 - secondsRemaining(value.endsAt);
+    const nextMinutes = Math.max(minutes, Math.ceil((elapsed + 60) / 60));
+    if (nextMinutes > maximum) return;
+    const endsAt = value.endsAt + (nextMinutes - value[durationKey]) * 60 * 1000;
+    commit({ ...value, [durationKey]: nextMinutes, endsAt, remaining: secondsRemaining(endsAt) });
   };
 
   return { ...session, timeLeft, isRunning: session.endsAt !== null, toggleTimer, resetTimer, startWork,

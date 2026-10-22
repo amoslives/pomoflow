@@ -8,7 +8,7 @@ React 19 + Vite + Tailwind v4 Pomodoro timer SPA. One backend API (`/api/tasks`)
 - Dev: `npm run dev` — runs `tsx server.ts`, a full-stack server (Express + Vite middleware) on port 3000 (`PORT` env to override). Do not run `vite` directly.
 - Typecheck / lint: `npm run lint` = `tsc --noEmit`. There is no ESLint.
 - Unit/API tests: `npm test` = Node's native test runner over `src/utils/*.test.ts` and `functions/api/*.test.ts` (needs Node ≥23.6). Single file: `node --test src/utils/timer.test.ts`.
-- Browser tests: `npm run test:e2e` (Playwright, desktop and mobile Chromium). Full gate: `npm run check` = strict typecheck, unit/API tests, build, then browser tests.
+- Browser tests: `npm run test:e2e` (Playwright, desktop and mobile Chromium). It also builds the app and serves it in production mode on port 3100 for `tests/e2e/offline.spec.ts`, because only builds have the service worker. Full gate: `npm run check` = strict typecheck, unit/API tests, build, then browser tests.
 - Build: `npm run build` → `dist/` (Cloudflare Pages output dir).
 
 - Use npm, not bun; `package-lock.json` is the only supported lockfile.
@@ -28,6 +28,7 @@ The look is a one-bit classic desktop (menu bar, pinstriped window title bars, b
 
 ## Gotchas
 
+- The service worker is generated at build time: the `serviceWorker` plugin in `vite.config.ts` fills `tooling/service-worker.js` with the built file list and a version hash and emits `dist/sw.js`. `src/main.tsx` registers it only in production builds. Do not add a hand-written `public/sw.js`.
 - The `@` path alias maps to the **repo root**, not `src/`.
 - `vite.config.ts` `DISABLE_HMR` logic is marked "Do not modify" — leave it as is.
 - `.data/tasks.sqlite` is local runtime state. `server.ts` imports `.data/tasks.json` once and retains that old file as a backup.

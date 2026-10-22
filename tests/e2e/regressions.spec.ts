@@ -167,3 +167,61 @@ test('dragging a running timer below the time already spent keeps the session go
   expect(secondsLeft).toBeGreaterThanOrEqual(60);
   expect(secondsLeft).toBeLessThan(62);
 });
+
+test('a timer left alone runs one more cycle after a break, then waits for Start', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/');
+  const badge = page.locator('.badge');
+  await page.getByRole('button', { name: /^start$/i }).click();
+  await page.clock.fastForward(25 * 60 * 1000);
+  await expect(badge).toHaveText('Break');
+
+  // Pressing Start was a response, so work restarts after the break
+  await page.clock.fastForward(5 * 60 * 1000);
+  await expect(badge).toHaveText('Work');
+  await expect(page.getByRole('button', { name: /^pause$/i })).toBeVisible();
+
+  // No response during that cycle, so the next break ends paused
+  await page.clock.fastForward(25 * 60 * 1000);
+  await expect(badge).toHaveText('Break');
+  await page.clock.fastForward(5 * 60 * 1000);
+  await expect(badge).toHaveText('Work');
+  await expect(page.getByText('25:00', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^start$/i })).toBeVisible();
+
+  // Left open and untouched for an hour, minute by minute
+  for (let minute = 0; minute < 60; minute++) await page.clock.fastForward(60 * 1000);
+  await expect(page.getByText('2 timers completed', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('pomodoro_session_v2')!).focusStats)))
+    .toEqual([{ sessions: 2, minutes: 50 }]);
+});
+
+test('opening the app during a cycle keeps the timer running after the next break', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/');
+  const badge = page.locator('.badge');
+  const setVisibility = (value: 'hidden' | 'visible') => page.evaluate((state) => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: state });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, value);
+  await page.getByRole('button', { name: /^start$/i }).click();
+  await page.clock.fastForward(25 * 60 * 1000);
+  await page.clock.fastForward(5 * 60 * 1000);
+  await expect(badge).toHaveText('Work');
+
+  // Ten minutes into the restarted session, the user switches away and back
+  await page.clock.fastForward(10 * 60 * 1000);
+  await setVisibility('hidden');
+  await setVisibility('visible');
+  await page.clock.fastForward(15 * 60 * 1000);
+  await expect(badge).toHaveText('Break');
+  await page.clock.fastForward(5 * 60 * 1000);
+  await expect(badge).toHaveText('Work');
+  await expect(page.getByRole('button', { name: /^pause$/i })).toBeVisible();
+
+  // That third session goes unanswered, so the timer pauses after its break
+  await page.clock.fastForward(25 * 60 * 1000);
+  await page.clock.fastForward(5 * 60 * 1000);
+  await expect(page.getByRole('button', { name: /^start$/i })).toBeVisible();
+  await expect(page.getByText('3 timers completed', { exact: true })).toBeVisible();
+});

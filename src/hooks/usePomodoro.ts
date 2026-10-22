@@ -47,6 +47,9 @@ async function notify(title: string, body: string) {
 export function usePomodoro() {
   const [session, setSession] = useState(readSession);
   const current = useRef(session);
+  // Whether the user opened, focused or used the app since work last restarted by itself.
+  // Loading the app counts.
+  const respondedRef = useRef(true);
   const [timeLeft, setTimeLeft] = useState(() => session.endsAt === null ? session.remaining : secondsRemaining(session.endsAt));
 
   const commit = useCallback((next: Session) => {
@@ -64,29 +67,42 @@ export function usePomodoro() {
     if (remaining > 0) { setTimeLeft(remaining); return; }
     const work = value.mode === 'work';
     const nextSeconds = (work ? value.breakMinutes : value.workMinutes) * 60;
+    // After a break, work restarts by itself only if the user responded during the last
+    // cycle. An app left alone pauses after one more session instead of logging focus time.
+    const autoStart = work || respondedRef.current;
+    if (!work && autoStart) respondedRef.current = false;
     // Credit only the session actually started, never cycles fabricated while the
     // browser was suspended. The next cycle begins when this completion is handled.
     commit({
       ...value, mode: work ? 'break' : 'work', remaining: nextSeconds,
-      endsAt: Date.now() + nextSeconds * 1000,
+      endsAt: autoStart ? Date.now() + nextSeconds * 1000 : null,
       completedSessions: value.completedSessions + (work ? 1 : 0),
       focusStats: work ? recordFocusSession(value.focusStats, value.workMinutes, new Date(value.endsAt)) : value.focusStats,
     });
     try { if (work) playWorkCompleteChime(); else playBreakCompleteChime(); } catch {}
     void notify(work ? 'Pomodoro Complete!' : 'Break Finished!', work
       ? `Great job! Time for a ${value.breakMinutes} minute break.`
-      : `Time to start your ${value.workMinutes} minute work session.`);
+      : autoStart
+        ? `Your ${value.workMinutes} minute work session has started.`
+        : `Timer paused. Press Start for your ${value.workMinutes} minute work session.`);
   }, [commit]);
 
   useEffect(() => {
+    // Opening, focusing or using the app is a response; it must count before a catch-up tick
+    const respond = () => { if (document.visibilityState === 'visible') respondedRef.current = true; };
+    const respondAndTick = () => { respond(); tick(); };
     tick();
     const interval = window.setInterval(tick, 1000);
-    window.addEventListener('focus', tick);
-    document.addEventListener('visibilitychange', tick);
+    window.addEventListener('focus', respondAndTick);
+    document.addEventListener('visibilitychange', respondAndTick);
+    window.addEventListener('pointerdown', respond, true);
+    window.addEventListener('keydown', respond, true);
     return () => {
       clearInterval(interval);
-      window.removeEventListener('focus', tick);
-      document.removeEventListener('visibilitychange', tick);
+      window.removeEventListener('focus', respondAndTick);
+      document.removeEventListener('visibilitychange', respondAndTick);
+      window.removeEventListener('pointerdown', respond, true);
+      window.removeEventListener('keydown', respond, true);
     };
   }, [tick]);
 

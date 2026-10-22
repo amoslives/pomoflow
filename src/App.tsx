@@ -13,7 +13,10 @@ import { playClickSound } from './utils/audio';
 import { nextThemeMode, normalizeThemeMode, type ThemeMode } from './utils/theme';
 import { usePomodoro } from './hooks/usePomodoro';
 import { useTaskSync } from './hooks/useTaskSync';
+import { useWakeLock, wakeLockSupported } from './hooks/useWakeLock';
+import { formatTime } from './utils/timer';
 
+const DEFAULT_TITLE = document.title;
 const WeeklyStats = lazy(() => import('./components/WeeklyStats').then(module => ({ default: module.WeeklyStats })));
 
 export default function App() {
@@ -25,6 +28,16 @@ export default function App() {
   const timer = usePomodoro();
   const sync = useTaskSync();
   const cycleTheme = useCallback(() => setThemeMode(current => nextThemeMode(current)), []);
+  const [keepAwake, setKeepAwake] = useState(() => localStorage.getItem('pomodoro_keep_awake') === 'true');
+  useWakeLock(keepAwake && timer.isRunning);
+  const intervalName = timer.mode === 'work' ? 'Work' : timer.longBreak ? 'Long break' : 'Break';
+
+  useEffect(() => { localStorage.setItem('pomodoro_keep_awake', String(keepAwake)); }, [keepAwake]);
+
+  // The countdown shows in the tab title while the timer runs
+  useEffect(() => {
+    document.title = timer.isRunning ? `${formatTime(timer.timeLeft)} · ${intervalName}` : DEFAULT_TITLE;
+  }, [timer.isRunning, timer.timeLeft, intervalName]);
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)');
@@ -72,11 +85,14 @@ export default function App() {
           </div>
           <div className="window-body">
             {activeTab === 'timer' ? <>
-              <TimerCircle mode={timer.mode} timeLeft={timer.timeLeft}
-                totalDuration={(timer.mode === 'work' ? timer.workMinutes : timer.breakMinutes) * 60}
-                isRunning={timer.isRunning} workMinutes={timer.workMinutes} breakMinutes={timer.breakMinutes}
+              <TimerCircle mode={timer.mode} intervalName={intervalName} timeLeft={timer.timeLeft}
+                totalDuration={timer.intervalMinutes * 60} isRunning={timer.isRunning}
+                sessionsTowardLongBreak={timer.longBreak ? null : timer.sessionsSinceLongBreak}
+                workMinutes={timer.workMinutes} breakMinutes={timer.breakMinutes} longBreakMinutes={timer.longBreakMinutes}
                 onToggleStart={timer.toggleTimer} onReset={timer.resetTimer} onStartWork={timer.startWork}
-                onChangeWorkMinutes={timer.handleWorkDurationChange} onChangeBreakMinutes={timer.handleBreakDurationChange} />
+                onChangeWorkMinutes={timer.handleWorkDurationChange} onChangeBreakMinutes={timer.handleBreakDurationChange}
+                onChangeLongBreakMinutes={timer.handleLongBreakDurationChange}
+                keepAwake={wakeLockSupported ? keepAwake : null} onChangeKeepAwake={setKeepAwake} />
               <TaskList tasks={sync.tasks} syncKey={sync.syncKey} syncStatus={sync.syncStatus}
                 onOpenSyncModal={() => setIsSyncModalOpen(true)}
                 onAddTask={title => { playClickSound(); sync.updateTasks([createTask(title), ...sync.tasks]); }}

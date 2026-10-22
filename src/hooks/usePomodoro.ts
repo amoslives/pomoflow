@@ -5,14 +5,35 @@ import { secondsRemaining } from '../utils/timer';
 import { playBreakCompleteChime, playClickSound, playWorkCompleteChime } from '../utils/audio';
 
 const STORAGE_KEY = 'pomodoro_session_v2';
+// Every fourth completed work session is followed by a long break
+export const SESSIONS_PER_LONG_BREAK = 4;
+const LONG_BREAK_MIN = 5;
+const LONG_BREAK_MAX = 45;
+
 interface Session {
   mode: 'work' | 'break';
   remaining: number;
   endsAt: number | null;
   workMinutes: number;
   breakMinutes: number;
+  longBreakMinutes: number;
+  // Work sessions completed since the last long break, and whether the current break is that long break
+  sessionsSinceLongBreak: number;
+  longBreak: boolean;
   completedSessions: number;
   focusStats: FocusStats;
+}
+
+type Interval = 'work' | 'break' | 'longBreak';
+const INTERVAL_KEYS = { work: 'workMinutes', break: 'breakMinutes', longBreak: 'longBreakMinutes' } as const;
+const INTERVAL_LIMITS = { work: [1, 90], break: [1, 45], longBreak: [LONG_BREAK_MIN, LONG_BREAK_MAX] } as const;
+
+function currentInterval(value: Session): Interval {
+  return value.mode === 'work' ? 'work' : value.longBreak ? 'longBreak' : 'break';
+}
+
+function intervalMinutes(value: Session): number {
+  return value[INTERVAL_KEYS[currentInterval(value)]];
 }
 
 function readSession(): Session {
@@ -20,6 +41,7 @@ function readSession(): Session {
   const fallback: Session = {
     mode: 'work', remaining: workMinutes * 60, endsAt: null, workMinutes,
     breakMinutes: parseStoredInteger(localStorage.getItem('pomodoro_break_duration'), 5, 1, 45),
+    longBreakMinutes: 15, sessionsSinceLongBreak: 0, longBreak: false,
     completedSessions: parseStoredInteger(localStorage.getItem('pomodoro_completed_sessions'), 0, 0, Number.MAX_SAFE_INTEGER),
     focusStats: localStorage.getItem('pomodoro_focus_stats_v2')
       ? normalizeFocusStats(parseStoredJson(localStorage.getItem('pomodoro_focus_stats_v2')))
@@ -32,7 +54,15 @@ function readSession(): Session {
     || typeof value.remaining !== 'number' || !Number.isFinite(value.remaining) || value.remaining < 0 || value.remaining > 5400
     || (value.endsAt !== null && (typeof value.endsAt !== 'number' || !Number.isFinite(value.endsAt)))
     || !Number.isSafeInteger(value.completedSessions) || value.completedSessions! < 0) return fallback;
-  return { ...value, focusStats: normalizeFocusStats(value.focusStats) } as Session;
+  // Records saved before long breaks existed lack these fields
+  const longBreakMinutes = Number.isInteger(value.longBreakMinutes)
+    && value.longBreakMinutes! >= LONG_BREAK_MIN && value.longBreakMinutes! <= LONG_BREAK_MAX ? value.longBreakMinutes! : 15;
+  const sessionsSinceLongBreak = Number.isInteger(value.sessionsSinceLongBreak)
+    && value.sessionsSinceLongBreak! >= 0 && value.sessionsSinceLongBreak! < SESSIONS_PER_LONG_BREAK ? value.sessionsSinceLongBreak! : 0;
+  return {
+    ...value, longBreakMinutes, sessionsSinceLongBreak, longBreak: value.mode === 'break' && value.longBreak === true,
+    focusStats: normalizeFocusStats(value.focusStats),
+  } as Session;
 }
 
 async function notify(title: string, body: string) {
@@ -66,7 +96,10 @@ export function usePomodoro() {
     const remaining = secondsRemaining(value.endsAt);
     if (remaining > 0) { setTimeLeft(remaining); return; }
     const work = value.mode === 'work';
-    const nextSeconds = (work ? value.breakMinutes : value.workMinutes) * 60;
+    const sessionsSinceLongBreak = work ? value.sessionsSinceLongBreak + 1 : value.sessionsSinceLongBreak;
+    const longBreak = work && sessionsSinceLongBreak >= SESSIONS_PER_LONG_BREAK;
+    const breakMinutes = longBreak ? value.longBreakMinutes : value.breakMinutes;
+    const nextSeconds = (work ? breakMinutes : value.workMinutes) * 60;
     // After a break, work restarts by itself only if the user responded during the last
     // cycle. An app left alone pauses after one more session instead of logging focus time.
     const autoStart = work || respondedRef.current;
@@ -76,12 +109,13 @@ export function usePomodoro() {
     commit({
       ...value, mode: work ? 'break' : 'work', remaining: nextSeconds,
       endsAt: autoStart ? Date.now() + nextSeconds * 1000 : null,
+      sessionsSinceLongBreak: longBreak ? 0 : sessionsSinceLongBreak, longBreak,
       completedSessions: value.completedSessions + (work ? 1 : 0),
       focusStats: work ? recordFocusSession(value.focusStats, value.workMinutes, new Date(value.endsAt)) : value.focusStats,
     });
     try { if (work) playWorkCompleteChime(); else playBreakCompleteChime(); } catch {}
     void notify(work ? 'Pomodoro Complete!' : 'Break Finished!', work
-      ? `Great job! Time for a ${value.breakMinutes} minute break.`
+      ? `Great job! Time for a ${breakMinutes} minute ${longBreak ? 'long break' : 'break'}.`
       : autoStart
         ? `Your ${value.workMinutes} minute work session has started.`
         : `Timer paused. Press Start for your ${value.workMinutes} minute work session.`);
@@ -123,7 +157,7 @@ export function usePomodoro() {
   const resetTimer = useCallback(() => {
     const value = current.current;
     playClickSound();
-    commit({ ...value, endsAt: null, remaining: (value.mode === 'work' ? value.workMinutes : value.breakMinutes) * 60 });
+    commit({ ...value, endsAt: null, remaining: intervalMinutes(value) * 60 });
   }, [commit]);
 
   const startWork = useCallback(() => {
@@ -131,18 +165,19 @@ export function usePomodoro() {
     if (value.mode !== 'break') return;
     const remaining = value.workMinutes * 60;
     playClickSound();
-    commit({ ...value, mode: 'work', remaining, endsAt: Date.now() + remaining * 1000 });
+    commit({ ...value, mode: 'work', longBreak: false, remaining, endsAt: Date.now() + remaining * 1000 });
   }, [commit]);
 
-  const changeDuration = (mode: 'work' | 'break', minutes: number) => {
+  const changeDuration = (interval: Interval, minutes: number) => {
     tick();
     const value = current.current;
-    const maximum = mode === 'work' ? 90 : 45;
-    if (!Number.isInteger(minutes) || minutes < 1 || minutes > maximum) return;
-    const durationKey = mode === 'work' ? 'workMinutes' : 'breakMinutes';
-    if (value.mode !== mode || value.endsAt === null) {
+    const [minimum, maximum] = INTERVAL_LIMITS[interval];
+    if (!Number.isInteger(minutes) || minutes < minimum || minutes > maximum) return;
+    const durationKey = INTERVAL_KEYS[interval];
+    const isCurrent = currentInterval(value) === interval;
+    if (!isCurrent || value.endsAt === null) {
       commit({ ...value, [durationKey]: minutes,
-        remaining: value.mode === mode ? minutes * 60 : value.remaining });
+        remaining: isCurrent ? minutes * 60 : value.remaining });
       return;
     }
 
@@ -154,7 +189,9 @@ export function usePomodoro() {
     commit({ ...value, [durationKey]: nextMinutes, endsAt, remaining: secondsRemaining(endsAt) });
   };
 
-  return { ...session, timeLeft, isRunning: session.endsAt !== null, toggleTimer, resetTimer, startWork,
+  return { ...session, timeLeft, isRunning: session.endsAt !== null, intervalMinutes: intervalMinutes(session),
+    toggleTimer, resetTimer, startWork,
     handleWorkDurationChange: (minutes: number) => changeDuration('work', minutes),
-    handleBreakDurationChange: (minutes: number) => changeDuration('break', minutes) };
+    handleBreakDurationChange: (minutes: number) => changeDuration('break', minutes),
+    handleLongBreakDurationChange: (minutes: number) => changeDuration('longBreak', minutes) };
 }

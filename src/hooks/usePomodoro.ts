@@ -65,10 +65,11 @@ export function usePomodoro() {
     const work = value.mode === 'work';
     const nextSeconds = (work ? value.breakMinutes : value.workMinutes) * 60;
     // Credit only the session actually started, never cycles fabricated while the
-    // browser was suspended. The next cycle begins when this completion is handled.
+    // browser was suspended. A break begins when this completion is handled; the next
+    // work session waits for Start, so an app left open earns no credit on its own.
     commit({
       ...value, mode: work ? 'break' : 'work', remaining: nextSeconds,
-      endsAt: Date.now() + nextSeconds * 1000,
+      endsAt: work ? Date.now() + nextSeconds * 1000 : null,
       completedSessions: value.completedSessions + (work ? 1 : 0),
       focusStats: work ? recordFocusSession(value.focusStats, value.workMinutes, new Date(value.endsAt)) : value.focusStats,
     });

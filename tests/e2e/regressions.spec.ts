@@ -167,3 +167,27 @@ test('dragging a running timer below the time already spent keeps the session go
   expect(secondsLeft).toBeGreaterThanOrEqual(60);
   expect(secondsLeft).toBeLessThan(62);
 });
+
+test('after a break the next work session waits for Start, so an open app earns no extra credit', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/');
+  await page.getByRole('button', { name: /^start$/i }).click();
+  await page.clock.fastForward(25 * 60 * 1000);
+  await expect(page.locator('.badge')).toHaveText('Break');
+  await expect(page.getByRole('button', { name: /^pause$/i })).toBeVisible();
+
+  await page.clock.fastForward(5 * 60 * 1000);
+  await expect(page.locator('.badge')).toHaveText('Work');
+  await expect(page.getByText('25:00', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^start$/i })).toBeVisible();
+
+  // Left open and untouched for an hour, minute by minute
+  for (let minute = 0; minute < 60; minute++) await page.clock.fastForward(60 * 1000);
+  await expect(page.getByText('25:00', { exact: true })).toBeVisible();
+  await expect(page.getByText('1 timer completed', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('pomodoro_session_v2')!).focusStats)))
+    .toEqual([{ sessions: 1, minutes: 25 }]);
+
+  await page.getByRole('button', { name: /^start$/i }).click();
+  await expect(page.getByRole('button', { name: /^pause$/i })).toBeVisible();
+});

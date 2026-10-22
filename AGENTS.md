@@ -20,7 +20,7 @@ React 19 + Vite + Tailwind v4 Pomodoro timer SPA. One backend API (`/api/tasks`)
 - `server.ts` adapts Express requests and uses `tooling/local-database.ts` to execute the D1 SQL in `.data/tasks.sqlite`.
 - Cloudflare Pages uses D1 binding `TASKS_DB`; `TASKS_KV` holds legacy recovery sources and entries are deleted after migration.
 
-The frontend calls `/api/tasks` from `src/hooks/useTaskSync.ts`. Protocol changes also belong in `src/utils/sync.ts`. New rooms contain AES-GCM ciphertext; only the derived bearer credential reaches the server. Pending edits are rebased onto authoritative snapshots, so deletion history does not accumulate. Keep revocation hashes permanent. API tests execute real SQLite migrations and SQL.
+The frontend calls `/api/tasks` from `src/hooks/useTaskSync.ts`. Protocol changes also belong in `src/utils/sync.ts`. New rooms contain AES-GCM ciphertext of a `SyncDocument` (tasks, each device's focus stats keyed by device ID, and the shared settings from `src/utils/settings.ts`); rooms written before stats sync hold a bare task array, which `decryptDocument` still reads. Only the derived bearer credential reaches the server. Pending edits are rebased onto authoritative snapshots, so deletion history does not accumulate. Keep revocation hashes permanent. API tests execute real SQLite migrations and SQL.
 
 ## UI conventions
 

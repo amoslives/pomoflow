@@ -1,10 +1,38 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { normalizeTasks, type Task } from '../utils/tasks';
 import { parseStoredJson } from '../utils/storage';
-import { applyPendingTasks, decryptTasks, encryptTasks, isLegacyKey, isLegacySecureKey, isValidSyncKey, mergeTasks, normalizeSyncKey, syncCredential } from '../utils/sync';
+import { normalizeFocusStats, type FocusStats } from '../utils/stats';
+import { newerSettings, type SyncedSettings } from '../utils/settings';
+import {
+  applyPendingTasks, decryptDocument, documentChanged, encryptDocument, isDeviceId, isLegacyKey, isLegacySecureKey,
+  isValidSyncKey, mergeTasks, normalizeSyncKey, publishDocument, syncCredential, type SyncDocument,
+} from '../utils/sync';
 
 interface LocalTasks { key: string; tasks: Task[]; pending: Task[] }
 const STORAGE_KEY = 'pomodoro_sync_v2';
+
+/** What this device shares besides tasks, and where newer shared settings from the room go. */
+export interface SyncOptions {
+  deviceId: string;
+  ownStats: FocusStats;
+  settings: SyncedSettings | null;
+  onRemoteSettings: (settings: SyncedSettings) => void;
+}
+
+// The other devices' stats from the room's last copy, kept for display offline
+interface PeerStats { key: string; stats: Record<string, FocusStats> }
+const PEERS_KEY = 'pomodoro_peer_stats';
+const NO_PEERS: Record<string, FocusStats> = {};
+
+function readPeers(): PeerStats {
+  const saved = parseStoredJson(localStorage.getItem(PEERS_KEY)) as Partial<PeerStats> | null;
+  if (!saved || typeof saved.key !== 'string' || !saved.stats || typeof saved.stats !== 'object') return { key: '', stats: {} };
+  const stats: Record<string, FocusStats> = {};
+  for (const [device, deviceStats] of Object.entries(saved.stats)) {
+    if (isDeviceId(device)) stats[device] = normalizeFocusStats(deviceStats);
+  }
+  return { key: saved.key, stats };
+}
 
 function initialState(): LocalTasks {
   const saved = parseStoredJson(localStorage.getItem(STORAGE_KEY)) as Partial<LocalTasks> | null;
@@ -23,9 +51,12 @@ async function responseData(response: Response) {
   return body;
 }
 
-export function useTaskSync() {
+export function useTaskSync(options: SyncOptions) {
   const [state, setState] = useState(initialState);
   const current = useRef(state);
+  const shared = useRef(options);
+  shared.current = options;
+  const [peers, setPeers] = useState(readPeers);
   const epoch = useRef(0);
   const busy = useRef<number | null>(null);
   const again = useRef(false);
@@ -47,6 +78,26 @@ export function useTaskSync() {
     current.current = value;
     setState(value);
   }, []);
+
+  const savePeers = useCallback((value: PeerStats) => {
+    if (value.key) localStorage.setItem(PEERS_KEY, JSON.stringify(value));
+    else localStorage.removeItem(PEERS_KEY);
+    setPeers(value);
+  }, []);
+
+  // Keep the other devices' stats, and take the room's settings when they changed more recently
+  const receive = useCallback((key: string, remote: SyncDocument) => {
+    const { deviceId, settings, onRemoteSettings } = shared.current;
+    savePeers({ key, stats: Object.fromEntries(Object.entries(remote.stats).filter(([device]) => device !== deviceId)) });
+    if (remote.settings && newerSettings(settings, remote.settings) === remote.settings && remote.settings.updatedAt !== settings?.updatedAt) {
+      onRemoteSettings(remote.settings);
+    }
+  }, [savePeers]);
+
+  const publish = (remote: SyncDocument, tasks: Task[]) => {
+    const { deviceId, ownStats, settings } = shared.current;
+    return publishDocument(remote, tasks, deviceId, ownStats, settings);
+  };
 
   const sync = useCallback(async () => {
     const key = current.current.key;
@@ -70,12 +121,14 @@ export function useTaskSync() {
         if (!active()) return;
         if (response.status === 410) halted.current = true;
         const body = await responseData(response);
-        const remote = await decryptTasks(key, body.encrypted);
+        const remote = await decryptDocument(key, body.encrypted);
         if (!active()) return;
+        receive(key, remote);
         const pending = [...current.current.pending];
-        const merged = applyPendingTasks(remote, pending);
-        if (pending.length) {
-          const encrypted = await encryptTasks(key, merged);
+        const merged = applyPendingTasks(remote.tasks, pending);
+        const { deviceId, ownStats, settings } = shared.current;
+        if (pending.length || documentChanged(remote, deviceId, ownStats, settings)) {
+          const encrypted = await encryptDocument(key, publish(remote, merged));
           if (!active()) return;
           const post = await fetch('/api/tasks', { method: 'POST', headers: {
             Authorization: `Bearer ${credential}`, 'Content-Type': 'application/json',
@@ -101,7 +154,7 @@ export function useTaskSync() {
         setSyncError(error instanceof Error ? error.message : 'Network error syncing tasks.');
       }
     } finally { if (busy.current === generation) busy.current = null; }
-  }, [commit]);
+  }, [commit, receive]);
 
   useEffect(() => {
     void sync();
@@ -150,12 +203,13 @@ export function useTaskSync() {
       const key = pendingPairKey;
       const credential = await syncCredential(key);
       const body = await responseData(await fetch('/api/tasks', { headers: { Authorization: `Bearer ${credential}` } }));
-      const remote = await decryptTasks(key, body.encrypted);
+      const remote = await decryptDocument(key, body.encrypted);
       const local = current.current;
       // Switching rooms never destroys the previous local list.
       localStorage.setItem(`pomodoro_pairing_backup_${Date.now()}`, JSON.stringify(local));
       const pending = shareLocal ? local.tasks.filter(t => t.deletedAt === undefined) : [];
-      commit({ key, tasks: applyPendingTasks(remote, pending), pending });
+      commit({ key, tasks: applyPendingTasks(remote.tasks, pending), pending });
+      receive(key, remote);
       setPendingPairKey(''); setLastSynced(null);
       void sync();
     } catch (error) { setPairingError(error instanceof Error ? error.message : 'Could not pair.'); }
@@ -171,6 +225,8 @@ export function useTaskSync() {
     const old = current.current;
     try {
       let tasks = old.tasks;
+      // The old room's stats and settings move to the new room with the tasks
+      let previous: SyncDocument = { tasks: [], stats: {}, settings: null };
       let revision: number | null = null;
       if (old.key && (isValidSyncKey(old.key) || isLegacySecureKey(old.key))) {
         const credential = isValidSyncKey(old.key) ? await syncCredential(old.key) : old.key;
@@ -178,9 +234,10 @@ export function useTaskSync() {
         if (response.status !== 410) {
           const body = await responseData(response);
           revision = body.revision;
-          tasks = isValidSyncKey(old.key)
-            ? applyPendingTasks(await decryptTasks(old.key, body.encrypted), current.current.pending)
-            : mergeTasks(current.current.tasks, normalizeTasks(body.tasks)).filter(t => t.deletedAt === undefined);
+          if (isValidSyncKey(old.key)) {
+            previous = await decryptDocument(old.key, body.encrypted);
+            tasks = applyPendingTasks(previous.tasks, current.current.pending);
+          } else tasks = mergeTasks(current.current.tasks, normalizeTasks(body.tasks)).filter(t => t.deletedAt === undefined);
         }
       }
       const pendingAtCopy = [...current.current.pending];
@@ -191,7 +248,7 @@ export function useTaskSync() {
       const credential = await syncCredential(newKey);
       await responseData(await fetch('/api/tasks', { method: 'POST', headers: {
         Authorization: `Bearer ${credential}`, 'Content-Type': 'application/json',
-      }, body: JSON.stringify({ encrypted: await encryptTasks(newKey, tasks), baseRevision: 0 }) }));
+      }, body: JSON.stringify({ encrypted: await encryptDocument(newKey, publish(previous, tasks)), baseRevision: 0 }) }));
       if (old.key) {
         await responseData(await fetch('/api/tasks', { method: 'DELETE', headers: {
           Authorization: `Bearer ${isValidSyncKey(old.key) ? await syncCredential(old.key) : old.key}`,
@@ -200,6 +257,7 @@ export function useTaskSync() {
       }
       const pending = current.current.pending.filter(task => !pendingAtCopy.includes(task));
       commit({ key: newKey, tasks: applyPendingTasks(tasks, pending), pending });
+      receive(newKey, previous);
       localStorage.removeItem('pomodoro_rotation_draft');
       setLastSynced(Date.now()); setSyncStatus('synced');
       return true;
@@ -211,9 +269,11 @@ export function useTaskSync() {
 
   const disconnect = () => {
     commit({ ...current.current, key: '', pending: [] });
+    savePeers({ key: '', stats: {} });
     setSyncStatus('idle'); setSyncError(null); setLastSynced(null);
   };
   return { tasks: state.tasks, syncKey: state.key, syncStatus, syncError, lastSynced,
+    peerStats: state.key && peers.key === state.key ? peers.stats : NO_PEERS,
     updateTasks, sync, requestPair, confirmPair, rotateKey, disconnect, pendingPairKey,
     pairingError, pairingBusy, cancelPair: () => { if (!pairingBusy) setPendingPairKey(''); } };
 }

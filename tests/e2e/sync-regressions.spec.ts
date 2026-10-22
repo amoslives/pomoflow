@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { decryptTasks, encryptTasks, generateSyncKey, syncCredential } from '../../src/utils/sync';
+import { decryptTasks, encryptDocument, generateSyncKey, syncCredential } from '../../src/utils/sync';
 import { createTask } from '../../src/utils/tasks';
 
 test('opening a pairing link never uploads local tasks without confirmation', async ({ page }) => {
@@ -35,7 +35,7 @@ test('two devices keep remote deletions and offline additions without leaking pl
     const a = await first.newPage(), b = await second.newPage();
     const response = await a.request.post('http://127.0.0.1:3000/api/tasks', {
       headers: { Authorization: `Bearer ${credential}` },
-      data: { encrypted: await encryptTasks(key, [task]), baseRevision: 0 },
+      data: { encrypted: await encryptDocument(key, { tasks: [task], stats: {}, settings: null }), baseRevision: 0 },
     });
     expect(response.ok()).toBe(true);
     for (const page of [a, b]) {

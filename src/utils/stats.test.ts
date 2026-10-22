@@ -10,6 +10,8 @@ import {
   getPastMonthsData,
   calculateStreak,
   focusStatsToCsv,
+  sumStats,
+  sameStats,
 } from './stats.ts';
 
 test('formatDateKey formats date in local time', () => {
@@ -109,4 +111,21 @@ test('focusStatsToCsv lists every recorded day in date order', () => {
     '2026-10-02': { sessions: 3, minutes: 80 },
   }), 'date,timers,focus_minutes\n2026-10-02,3,80\n2026-10-21,1,25\n');
   assert.equal(focusStatsToCsv({}), 'date,timers,focus_minutes\n');
+});
+
+test('sumStats adds devices day by day', () => {
+  assert.deepEqual(sumStats(
+    { '2026-10-21': { sessions: 1, minutes: 25 }, '2026-10-22': { sessions: 2, minutes: 50 } },
+    { '2026-10-22': { sessions: 1, minutes: 30 } },
+    {},
+  ), { '2026-10-21': { sessions: 1, minutes: 25 }, '2026-10-22': { sessions: 3, minutes: 80 } });
+});
+
+test('sameStats compares every day', () => {
+  const stats = { '2026-10-22': { sessions: 2, minutes: 50 } };
+  assert.equal(sameStats(stats, { '2026-10-22': { sessions: 2, minutes: 50 } }), true);
+  assert.equal(sameStats(stats, { '2026-10-22': { sessions: 2, minutes: 55 } }), false);
+  assert.equal(sameStats(stats, { ...stats, '2026-10-21': { sessions: 1, minutes: 25 } }), false);
+  assert.equal(sameStats(undefined, {}), true);
+  assert.equal(sameStats(stats, undefined), false);
 });

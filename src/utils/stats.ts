@@ -160,3 +160,21 @@ export function summarizePeriod(data: (FocusDayStats & { name: string })[]): Per
     bestMinutes: peak?.minutes || 0,
   };
 }
+
+/** Adds focus stats day by day, for example this device's and its paired devices'. */
+export function sumStats(...all: FocusStats[]): FocusStats {
+  const total: FocusStats = {};
+  for (const stats of all) {
+    for (const [date, day] of Object.entries(stats)) {
+      const current = total[date] || { sessions: 0, minutes: 0 };
+      total[date] = { sessions: current.sessions + day.sessions, minutes: current.minutes + day.minutes };
+    }
+  }
+  return total;
+}
+
+export function sameStats(a: FocusStats | undefined, b: FocusStats | undefined): boolean {
+  const left = Object.entries(a || {});
+  if (left.length !== Object.keys(b || {}).length) return false;
+  return left.every(([date, day]) => b?.[date]?.sessions === day.sessions && b[date]!.minutes === day.minutes);
+}

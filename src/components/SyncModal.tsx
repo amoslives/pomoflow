@@ -197,7 +197,7 @@ export function SyncModal({
               {syncKey === inputKey.trim() && syncKey ? 'Update' : 'Connect'}
             </button>
           </div>
-          <p className="text-base dim mt-1">Tasks are encrypted on your device. Anyone with this key can read and change them. Keys are not case-sensitive.</p>
+          <p className="text-base dim mt-1">Tasks, focus stats and timer settings are encrypted on your device. Anyone with this key can read and change them. Keys are not case-sensitive.</p>
           {syncKey && !isSecureSyncKey(syncKey) && (
             <p className="text-base mt-1 flex items-start gap-1.5">
               <ShieldAlert className="w-4 h-4 mt-0.5 flex-shrink-0" strokeWidth={2.5} />

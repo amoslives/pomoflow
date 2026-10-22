@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { handleTaskRequest, type D1Database } from './tasks.ts';
 import { localDatabase } from '../../tooling/local-database.ts';
-import { decryptTasks, encryptTasks, generateSyncKey, hashCredential, syncCredential } from '../../src/utils/sync.ts';
+import { decryptTasks, encryptDocument, generateSyncKey, hashCredential, syncCredential } from '../../src/utils/sync.ts';
+import type { Task } from '../../src/utils/tasks.ts';
+
+const encryptTasks = (key: string, tasks: Task[]) => encryptDocument(key, { tasks, stats: {}, settings: null });
 
 const task = { id: 'task-1', title: 'Private task', completed: false, createdAt: 1, updatedAt: 1 };
 const key = generateSyncKey();

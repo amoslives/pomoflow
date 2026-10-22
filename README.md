@@ -16,7 +16,7 @@ A one-bit Pomodoro timer. Tasks, optional YouTube playback, weekly focus stats, 
 - YouTube videos, playlists and live streams, with a queue, shuffle, repeat and seeking. Press **Load** to add a source. The video is hidden by default so playback runs from the media bar alone; press **Video** to show the player. On the Stats view the player shrinks to a now-playing bar and keeps playing. Playback position survives a refresh, and music keeps playing when you switch to another app unless the browser or YouTube pauses it. The iOS home screen app stops music in the background; when you return, it resumes from where it stopped.
 - Seven-day focus stats counted from work timers that reached 00:00. Pausing or resetting does not count.
 - Light, dark and system themes in a classic desktop look. Keyboard shortcuts: `Space` start or pause, `R` reset, `D` theme.
-- Installs as an app with its own window and launcher icon: **Install** in Chrome or Edge, **Add to Dock** in Safari on a Mac, **Add to Home Screen** on iPhone and Android.
+- Installs as an app with its own window and launcher icon: **Install** in Chrome or Edge, **Add to Dock** in Safari on a Mac, **Add to Home Screen** on iPhone and Android. After the first visit the app opens offline; tasks sync and YouTube need a connection.
 
 <p>
   <img src="docs/screenshot-light.png" alt="Pomoflow timer window in light mode" width="49%">
@@ -72,7 +72,7 @@ Open [http://localhost:3000](http://localhost:3000). The dev server serves the a
 ```bash
 npm run lint      # strict TypeScript
 npm test          # unit and API contract tests
-npm run test:e2e  # Playwright, desktop and mobile Chromium
+npm run test:e2e  # Playwright, desktop and mobile Chromium; also builds and serves the app on port 3100 for the offline tests
 npm run check     # all of the above plus a production build
 ```
 

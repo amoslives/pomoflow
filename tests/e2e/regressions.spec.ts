@@ -132,3 +132,38 @@ test('YouTube is not contacted before the user enables playback', async ({ page 
   await expect(page.getByRole('button', { name: 'Play music', exact: true })).toBeVisible();
   expect(youtubeRequests).toEqual([]);
 });
+
+test('dragging a running timer below the time already spent keeps the session going', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-10-22T09:00:00') });
+  await page.goto('/');
+  // A paused clock keeps the elapsed time exact while the keys are pressed
+  await page.clock.pauseAt(new Date('2026-10-22T09:00:05'));
+  await page.getByRole('button', { name: /^start$/i }).click();
+  await page.clock.fastForward(10 * 60 * 1000);
+  await expect(page.getByText('15:00', { exact: true })).toBeVisible();
+
+  // A drag passes through every value on the way down
+  const workDuration = page.getByLabel('Work duration slider in minutes');
+  await workDuration.focus();
+  for (let step = 0; step < 20; step++) await workDuration.press('ArrowLeft');
+  await expect(workDuration).toHaveValue('11');
+  await expect(page.locator('.badge')).toHaveText('Work');
+  await expect(page.getByText('01:00', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^pause$/i })).toBeVisible();
+  await expect(page.getByText('0 timers completed', { exact: true })).toBeVisible();
+
+  // The shortened session still finishes normally
+  await page.clock.fastForward(61 * 1000);
+  await expect(page.locator('.badge')).toHaveText('Break');
+  await expect(page.getByText('1 timer completed', { exact: true })).toBeVisible();
+
+  const breakDuration = page.getByLabel('Break duration slider in minutes');
+  await page.clock.fastForward(2 * 60 * 1000);
+  await breakDuration.focus();
+  for (let step = 0; step < 5; step++) await breakDuration.press('ArrowLeft');
+  await expect(breakDuration).toHaveValue('3');
+  await expect(page.locator('.badge')).toHaveText('Break');
+  const secondsLeft = await page.evaluate(() => (JSON.parse(localStorage.getItem('pomodoro_session_v2')!).endsAt - Date.now()) / 1000);
+  expect(secondsLeft).toBeGreaterThanOrEqual(60);
+  expect(secondsLeft).toBeLessThan(62);
+});

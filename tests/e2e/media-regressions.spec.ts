@@ -489,3 +489,26 @@ test('the Stats tab shows a slim player that keeps the music playing', async ({ 
     players: 1, calls: [['pause', 'aaaaaaaaaaa'], ['play', 'aaaaaaaaaaa']],
   });
 });
+
+test('on the Stats tab, a start that needs a tap shows the video in the slim player', async ({ page }) => {
+  await page.evaluate(() => localStorage.setItem('pomodoro_music_queue', JSON.stringify([
+    { id: 'saved', title: 'Saved track', sourceType: 'youtube-video', youtubeId: 'aaaaaaaaaaa' },
+  ])));
+  await page.reload();
+  await page.evaluate(() => { (window as any).__mediaBlockPlay = true; });
+  await page.getByRole('button', { name: 'Stats', exact: true }).click();
+  const player = page.locator('section[aria-label="Music player"]');
+  const host = page.locator('#youtube-player-host');
+  await player.getByRole('button', { name: 'Play music', exact: true }).click();
+
+  await expect(player.getByRole('alert')).toContainText('Tap play in the video', { timeout: 6000 });
+  await expect(player.locator('iframe')).toBeVisible();
+  expect(await host.evaluate(element => (element as HTMLElement).offsetHeight)).toBeGreaterThan(100);
+
+  // The tap starts the music, and the slim player hides the video again
+  await page.evaluate(() => (window as any).__mediaEmit(1));
+  await expect(player.getByRole('button', { name: 'Pause music', exact: true })).toBeVisible();
+  await expect(player.getByRole('alert')).toHaveCount(0);
+  await expect(host).toHaveJSProperty('offsetHeight', 0);
+  await expect(page.getByRole('button', { name: 'Stats', exact: true })).toHaveAttribute('aria-current', 'page');
+});

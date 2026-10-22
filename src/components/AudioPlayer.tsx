@@ -162,6 +162,8 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
   const [playbackError, setPlaybackError] = useState('');
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekPreview, setSeekPreview] = useState(restoredPlayback?.position || 0);
+  // YouTube waits for a tap inside the video; even the compact player shows the video then
+  const [isTapNeeded, setIsTapNeeded] = useState(false);
 
   const ytPlayerRef = useRef<any>(null);
   const timerIntervalRef = useRef<number | null>(null);
@@ -202,7 +204,7 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
   const currentTrack: TrackItem | undefined = queue[currentTrackIndex];
   // There is no video to show until YouTube has loaded a track
   const hasVideo = youtubeEnabled && Boolean(currentTrack);
-  const isVideoShown = showVideo && hasVideo && !compact;
+  const isVideoShown = showVideo && hasVideo && (!compact || isTapNeeded);
 
   useEffect(() => {
     queueRef.current = queue;
@@ -314,13 +316,14 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
       if ((playerState !== -1 && playerState !== 5) || document.visibilityState === 'hidden') return;
       setIsPlaying(false);
       setPlaybackError('Tap play in the video to start. This browser starts YouTube only after a tap on the video itself.');
+      setIsTapNeeded(true);
       if (!videoChosenRef.current) {
         videoShownForTapRef.current = true;
         setShowVideo(true);
-        window.requestAnimationFrame(() => {
-          document.getElementById('youtube-player-host')?.scrollIntoView({ block: 'nearest' });
-        });
       }
+      window.requestAnimationFrame(() => {
+        document.getElementById('youtube-player-host')?.scrollIntoView({ block: 'nearest' });
+      });
     }, 3000);
     return () => window.clearTimeout(timer);
   }, [isPlaying, currentTrackIndex]);
@@ -483,6 +486,7 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
     setSeekPreview(0);
     setIsLive(false);
     setPlaybackError('');
+    setIsTapNeeded(false);
     resumePositionRef.current = 0;
     resumeLateStopUntilRef.current = 0;
 
@@ -574,6 +578,7 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
         }
         setIsPlaying(true);
         setPlaybackError('');
+        setIsTapNeeded(false);
         if (videoShownForTapRef.current) {
           videoShownForTapRef.current = false;
           setShowVideo(false);
@@ -916,6 +921,7 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
       setDuration(0);
       setIsLive(false);
       setPlaybackError('');
+      setIsTapNeeded(false);
       playlistSyncGenerationRef.current += 1;
       setNativePlaylistTracks([]);
       setNativePlaylistIndex(-1);

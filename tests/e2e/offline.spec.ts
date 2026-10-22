@@ -26,15 +26,19 @@ test('the installed app opens offline after its first visit', async ({ page, con
   await expect(another.getByRole('button', { name: /^start$/i })).toBeVisible();
 });
 
-test('a finished work session notifies through the service worker', async ({ page, context }) => {
-  await context.grantPermissions(['notifications']);
+test('a finished work session notifies through the service worker', async ({ page }) => {
+  // The headless Chromium that CI runs denies notifications whatever the permission, so report
+  // the permission as granted and record the call. The registration is the route Android needs.
+  await page.addInitScript(() => {
+    const calls: string[] = [];
+    (window as any).__notifications = calls;
+    Object.defineProperty(Notification, 'permission', { configurable: true, get: () => 'granted' });
+    ServiceWorkerRegistration.prototype.showNotification = async function (title) { calls.push(title); };
+  });
   await page.clock.install();
   await page.reload();
   await page.getByRole('button', { name: /^start$/i }).click();
   await page.clock.fastForward(25 * 60 * 1000);
   await expect(page.locator('.badge')).toHaveText('Break');
-  await expect.poll(() => page.evaluate(async () => {
-    const registration = await navigator.serviceWorker.getRegistration();
-    return (await registration!.getNotifications()).map((notification) => notification.title);
-  })).toEqual(['Pomodoro Complete!']);
+  await expect.poll(() => page.evaluate(() => (window as any).__notifications)).toEqual(['Pomodoro Complete!']);
 });

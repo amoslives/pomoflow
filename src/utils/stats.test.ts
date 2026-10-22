@@ -3,10 +3,13 @@ import assert from 'node:assert/strict';
 import {
   formatDateKey,
   recordFocusSession,
-  getPast7DaysData,
-  calculateWeeklySummary,
+  summarizePeriod,
   migrateLegacyStats,
   normalizeFocusStats,
+  getPastDaysData,
+  getPastMonthsData,
+  calculateStreak,
+  focusStatsToCsv,
 } from './stats.ts';
 
 test('formatDateKey formats date in local time', () => {
@@ -20,31 +23,31 @@ test('recordFocusSession records each completed timer with its actual duration',
   assert.deepEqual(second['2026-10-15'], { sessions: 2, minutes: 75 });
 });
 
-test('getPast7DaysData returns actual recorded minutes and sessions', () => {
-  const data = getPast7DaysData({
+test('getPastDaysData returns actual recorded minutes and sessions', () => {
+  const data = getPastDaysData({
     '2026-10-15': { sessions: 2, minutes: 55 },
     '2026-10-14': { sessions: 1, minutes: 40 },
-  }, new Date(2026, 9, 15));
+  }, 7, new Date(2026, 9, 15));
   assert.equal(data.length, 7);
   assert.deepEqual(data[6], { day: 'Thu', date: '2026-10-15', sessions: 2, minutes: 55 });
   assert.equal(data[5]!.minutes, 40);
 });
 
-test('calculateWeeklySummary uses minutes for averages and peak day', () => {
-  const summary = calculateWeeklySummary([
-    { day: 'Sun', date: '2026-10-11', sessions: 2, minutes: 50 },
-    { day: 'Mon', date: '2026-10-12', sessions: 4, minutes: 80 },
-    { day: 'Tue', date: '2026-10-13', sessions: 1, minutes: 90 },
-    ...['Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => ({ day, date: `2026-10-${14 + i}`, sessions: 0, minutes: 0 })),
+test('summarizePeriod uses minutes for averages and the best entry', () => {
+  const summary = summarizePeriod([
+    { name: 'Sun', sessions: 2, minutes: 50 },
+    { name: 'Mon', sessions: 4, minutes: 80 },
+    { name: 'Tue', sessions: 1, minutes: 90 },
+    ...['Wed', 'Thu', 'Fri', 'Sat'].map((name) => ({ name, sessions: 0, minutes: 0 })),
   ]);
   assert.deepEqual(summary, {
     totalSessions: 7,
     totalMinutes: 220,
-    dailyAverageMinutes: 31,
-    activeDays: 3,
-    bestDay: 'Tue',
-    bestDayMinutes: 90,
+    averageMinutes: 31,
+    best: 'Tue',
+    bestMinutes: 90,
   });
+  assert.equal(summarizePeriod([{ name: 'Jan', sessions: 0, minutes: 0 }]).best, 'None');
 });
 
 test('migrateLegacyStats discards generated demo data', () => {
@@ -64,4 +67,46 @@ test('normalizeFocusStats drops malformed records', () => {
     bad: { sessions: 1, minutes: 25 },
     '2026-10-16': { sessions: 'many', minutes: 25 },
   }), { '2026-10-15': { sessions: 2, minutes: 60 } });
+});
+
+test('getPastDaysData covers any number of days ending today', () => {
+  const data = getPastDaysData({ '2026-09-23': { sessions: 1, minutes: 25 } }, 30, new Date(2026, 9, 22));
+  assert.equal(data.length, 30);
+  assert.deepEqual(data[0], { day: 'Wed', date: '2026-09-23', sessions: 1, minutes: 25 });
+  assert.equal(data[29]!.date, '2026-10-22');
+});
+
+test('getPastMonthsData totals each month and crosses the year boundary', () => {
+  const data = getPastMonthsData({
+    '2025-11-30': { sessions: 1, minutes: 25 },
+    '2026-02-01': { sessions: 2, minutes: 50 },
+    '2026-02-28': { sessions: 1, minutes: 30 },
+    '2025-10-31': { sessions: 9, minutes: 225 },
+  }, 4, new Date(2026, 1, 15));
+  assert.deepEqual(data.map((month) => [month.month, month.name, month.year, month.sessions, month.minutes]), [
+    ['2025-11', 'Nov', 2025, 1, 25],
+    ['2025-12', 'Dec', 2025, 0, 0],
+    ['2026-01', 'Jan', 2026, 0, 0],
+    ['2026-02', 'Feb', 2026, 3, 80],
+  ]);
+});
+
+test('calculateStreak counts days in a row and keeps an unfinished today open', () => {
+  const stats = {
+    '2026-10-19': { sessions: 1, minutes: 25 },
+    '2026-10-20': { sessions: 2, minutes: 50 },
+    '2026-10-21': { sessions: 1, minutes: 25 },
+  };
+  assert.equal(calculateStreak(stats, new Date(2026, 9, 22)), 3);
+  assert.equal(calculateStreak({ ...stats, '2026-10-22': { sessions: 1, minutes: 25 } }, new Date(2026, 9, 22)), 4);
+  assert.equal(calculateStreak(stats, new Date(2026, 9, 23)), 0);
+  assert.equal(calculateStreak({}, new Date(2026, 9, 22)), 0);
+});
+
+test('focusStatsToCsv lists every recorded day in date order', () => {
+  assert.equal(focusStatsToCsv({
+    '2026-10-21': { sessions: 1, minutes: 25 },
+    '2026-10-02': { sessions: 3, minutes: 80 },
+  }), 'date,timers,focus_minutes\n2026-10-02,3,80\n2026-10-21,1,25\n');
+  assert.equal(focusStatsToCsv({}), 'date,timers,focus_minutes\n');
 });

@@ -10,13 +10,12 @@ export interface DayProductivity extends FocusDayStats {
   date: string;
 }
 
-export interface WeeklySummary {
+export interface PeriodSummary {
   totalSessions: number;
   totalMinutes: number;
-  dailyAverageMinutes: number;
-  activeDays: number;
-  bestDay: string;
-  bestDayMinutes: number;
+  averageMinutes: number;
+  best: string;
+  bestMinutes: number;
 }
 
 export function formatDateKey(d: Date): string {
@@ -78,13 +77,14 @@ export function migrateLegacyStats(value: unknown, workMinutes: number): FocusSt
   }]));
 }
 
-export function getPast7DaysData(
+export function getPastDaysData(
   stats: FocusStats,
+  days: number,
   referenceDate: Date = new Date()
 ): DayProductivity[] {
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const result: DayProductivity[] = [];
-  for (let i = 6; i >= 0; i--) {
+  for (let i = days - 1; i >= 0; i--) {
     const d = new Date(referenceDate);
     d.setDate(d.getDate() - i);
     const date = formatDateKey(d);
@@ -94,20 +94,69 @@ export function getPast7DaysData(
   return result;
 }
 
-export function calculateWeeklySummary(data: DayProductivity[]): WeeklySummary {
+export interface MonthProductivity extends FocusDayStats {
+  month: string;
+  name: string;
+  year: number;
+}
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+export function getPastMonthsData(
+  stats: FocusStats,
+  months: number,
+  referenceDate: Date = new Date()
+): MonthProductivity[] {
+  const result: MonthProductivity[] = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - i, 1);
+    const month = formatDateKey(d).slice(0, 7);
+    result.push({ month, name: MONTH_NAMES[d.getMonth()] ?? '', year: d.getFullYear(), sessions: 0, minutes: 0 });
+  }
+  const byMonth = new Map(result.map((entry) => [entry.month, entry]));
+  for (const [date, day] of Object.entries(stats)) {
+    const entry = byMonth.get(date.slice(0, 7));
+    if (entry) {
+      entry.sessions += day.sessions;
+      entry.minutes += day.minutes;
+    }
+  }
+  return result;
+}
+
+/**
+ * Days in a row with at least one completed timer, ending today. A day without a
+ * timer yet does not break the streak until it is over.
+ */
+export function calculateStreak(stats: FocusStats, referenceDate: Date = new Date()): number {
+  const d = new Date(referenceDate);
+  if (!stats[formatDateKey(d)]?.sessions) d.setDate(d.getDate() - 1);
+  let streak = 0;
+  while (stats[formatDateKey(d)]?.sessions) {
+    streak++;
+    d.setDate(d.getDate() - 1);
+  }
+  return streak;
+}
+
+export function focusStatsToCsv(stats: FocusStats): string {
+  const rows = Object.keys(stats).sort().map((date) => `${date},${stats[date]!.sessions},${stats[date]!.minutes}`);
+  return ['date,timers,focus_minutes', ...rows].join('\n') + '\n';
+}
+
+/** Totals for a run of days or months. `name` labels each entry, for the best one. */
+export function summarizePeriod(data: (FocusDayStats & { name: string })[]): PeriodSummary {
   const totalSessions = data.reduce((sum, item) => sum + item.sessions, 0);
   const totalMinutes = data.reduce((sum, item) => sum + item.minutes, 0);
-  const activeDays = data.filter((item) => item.minutes > 0).length;
-  const peak = data.reduce<DayProductivity | null>(
+  const peak = data.reduce<(typeof data)[number] | null>(
     (best, item) => !best || item.minutes > best.minutes ? item : best,
     null
   );
   return {
     totalSessions,
     totalMinutes,
-    dailyAverageMinutes: data.length ? Math.round(totalMinutes / data.length) : 0,
-    activeDays,
-    bestDay: peak && peak.minutes > 0 ? peak.day : 'None',
-    bestDayMinutes: peak?.minutes || 0,
+    averageMinutes: data.length ? Math.round(totalMinutes / data.length) : 0,
+    best: peak && peak.minutes > 0 ? peak.name : 'None',
+    bestMinutes: peak?.minutes || 0,
   };
 }

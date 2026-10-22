@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import {
   ResponsiveContainer,
   BarChart,
@@ -8,18 +9,42 @@ import {
   CartesianGrid,
   Cell,
 } from 'recharts';
-import { Play } from 'lucide-react';
+import { Download, Minus, Play, Plus } from 'lucide-react';
 import {
-  type DayProductivity,
   type FocusStats,
-  calculateWeeklySummary,
-  getPast7DaysData,
+  calculateStreak,
+  focusStatsToCsv,
+  formatDateKey,
+  getPastDaysData,
+  getPastMonthsData,
+  summarizePeriod,
 } from '../utils/stats';
+import { parseStoredInteger } from '../utils/storage';
 
 interface WeeklyStatsProps {
   stats: FocusStats;
   isDark: boolean;
   onGoToTimer: () => void;
+}
+
+type Period = 'week' | 'month' | 'year';
+const PERIODS: { id: Period; label: string; heading: string }[] = [
+  { id: 'week', label: 'Week', heading: 'Last 7 days' },
+  { id: 'month', label: 'Month', heading: 'Last 30 days' },
+  { id: 'year', label: 'Year', heading: 'Last 12 months' },
+];
+
+const GOAL_KEY = 'pomodoro_daily_goal';
+const GOAL_MAX = 24;
+
+// One bar: `label` is the axis label, `name` names it in the summary, `title` heads its tooltip
+interface ChartRow {
+  key: string;
+  label: string;
+  name: string;
+  title: string;
+  sessions: number;
+  minutes: number;
 }
 
 function formatMinutes(minutes: number): string {
@@ -29,12 +54,30 @@ function formatMinutes(minutes: number): string {
   return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
 }
 
+function chartRows(stats: FocusStats, period: Period, now: Date): ChartRow[] {
+  if (period === 'year') {
+    return getPastMonthsData(stats, 12, now).map((month) => ({
+      key: month.month, label: month.name, name: `${month.name} ${month.year}`, title: `${month.name} ${month.year}`,
+      sessions: month.sessions, minutes: month.minutes,
+    }));
+  }
+  return getPastDaysData(stats, period === 'week' ? 7 : 30, now).map((day) => {
+    const monthName = new Date(`${day.date}T12:00:00`).toLocaleString('en', { month: 'short' });
+    const dayOfMonth = String(Number(day.date.slice(8)));
+    return {
+      key: day.date, label: period === 'week' ? day.day : dayOfMonth,
+      name: period === 'week' ? day.day : `${monthName} ${dayOfMonth}`, title: `${day.day} ${day.date}`,
+      sessions: day.sessions, minutes: day.minutes,
+    };
+  });
+}
+
 function DialogTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null;
-  const data: DayProductivity = payload[0].payload;
+  const data: ChartRow = payload[0].payload;
   return (
     <div className="dialog px-3 py-2 font-pixel">
-      <p className="font-bold text-lg">{data.day} {data.date}</p>
+      <p className="font-bold text-lg">{data.title}</p>
       <p className="font-data text-lg">{formatMinutes(data.minutes)} focused</p>
       <p className="font-data text-lg">{data.sessions} {data.sessions === 1 ? 'timer' : 'timers'} completed</p>
     </div>
@@ -42,18 +85,81 @@ function DialogTooltip({ active, payload }: any) {
 }
 
 export function WeeklyStats({ stats, isDark, onGoToTimer }: WeeklyStatsProps) {
-  const past7Days = getPast7DaysData(stats);
-  const summary = calculateWeeklySummary(past7Days);
-  const hasHistory = summary.totalSessions > 0;
+  const [period, setPeriod] = useState<Period>('week');
+  const [goal, setGoal] = useState(() => parseStoredInteger(localStorage.getItem(GOAL_KEY), 8, 1, GOAL_MAX));
+  useEffect(() => { localStorage.setItem(GOAL_KEY, String(goal)); }, [goal]);
+
+  const now = new Date();
+  const today = stats[formatDateKey(now)]?.sessions ?? 0;
+  const streak = calculateStreak(stats, now);
+  const hasHistory = Object.values(stats).some((day) => day.sessions > 0);
+  const rows = chartRows(stats, period, now);
+  const summary = summarizePeriod(rows);
+  const unit = period === 'year' ? 'month' : 'day';
+  const heading = PERIODS.find((entry) => entry.id === period)!.heading;
   const ink = isDark ? '#ececec' : '#000000';
   const paper = isDark ? '#121212' : '#ffffff';
 
+  const exportCsv = () => {
+    const url = URL.createObjectURL(new Blob([focusStatsToCsv(stats)], { type: 'text/csv' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `pomoflow-stats-${formatDateKey(now)}.csv`;
+    link.click();
+    // Some browsers read the file after click() returns
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   return (
     <section className="w-full flex flex-col select-none">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-3">
-        <h2 className="text-2xl font-bold whitespace-nowrap">Last 7 days</h2>
-        <p className="dim text-base text-left sm:text-right">Only work timers that reached 00:00 count.</p>
+      <section className="groupbox mb-5" aria-labelledby="today-label">
+        <h2 id="today-label" className="groupbox-label">Today</h2>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <p className="font-data text-xl whitespace-nowrap">{today} of {goal} {goal === 1 ? 'timer' : 'timers'}</p>
+          <div
+            className="progress flex-1 min-w-32"
+            role="progressbar"
+            aria-label="Daily goal"
+            aria-valuemin={0}
+            aria-valuemax={goal}
+            aria-valuenow={Math.min(today, goal)}
+          >
+            <div className="progress-fill" style={{ width: `${Math.min(100, (today / goal) * 100)}%` }} />
+          </div>
+          <div className="flex items-center gap-2 text-lg">
+            <span>Goal</span>
+            <button type="button" onClick={() => setGoal(goal - 1)} disabled={goal <= 1} aria-label="Lower daily goal" className="btn btn-sm btn-icon">
+              <Minus strokeWidth={3} />
+            </button>
+            <span className="font-data text-xl w-6 text-center" aria-live="polite">{goal}</span>
+            <button type="button" onClick={() => setGoal(goal + 1)} disabled={goal >= GOAL_MAX} aria-label="Raise daily goal" className="btn btn-sm btn-icon">
+              <Plus strokeWidth={3} />
+            </button>
+          </div>
+        </div>
+        <p className="mt-2 text-lg">
+          {today >= goal && <span className="font-bold">Goal met. </span>}
+          Streak: <span className="font-data text-xl">{streak} {streak === 1 ? 'day' : 'days'}</span>
+        </p>
+      </section>
+
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-1">
+        <h2 className="text-2xl font-bold whitespace-nowrap">{heading}</h2>
+        <div className="flex gap-1" role="group" aria-label="Period">
+          {PERIODS.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              onClick={() => setPeriod(entry.id)}
+              aria-pressed={period === entry.id}
+              className="btn btn-sm"
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
       </div>
+      <p className="dim text-base mb-3">Only work timers that reached 00:00 count.</p>
 
       {/* Get Info style summary */}
       <dl className="grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_auto_1fr] gap-x-4 gap-y-1 text-lg border-2 border-[var(--ink)] p-3 mb-4">
@@ -61,20 +167,20 @@ export function WeeklyStats({ stats, isDark, onGoToTimer }: WeeklyStatsProps) {
         <dd className="font-data text-xl">{summary.totalSessions}</dd>
         <dt className="font-bold">Focus time</dt>
         <dd className="font-data text-xl">{formatMinutes(summary.totalMinutes)}</dd>
-        <dt className="font-bold">Daily average</dt>
-        <dd className="font-data text-xl">{formatMinutes(summary.dailyAverageMinutes)}</dd>
-        <dt className="font-bold">Best day</dt>
+        <dt className="font-bold">{unit === 'day' ? 'Daily' : 'Monthly'} average</dt>
+        <dd className="font-data text-xl">{formatMinutes(summary.averageMinutes)}</dd>
+        <dt className="font-bold">Best {unit}</dt>
         <dd className="font-data text-xl">
-          {summary.bestDayMinutes ? `${summary.bestDay}, ${formatMinutes(summary.bestDayMinutes)}` : 'none yet'}
+          {summary.bestMinutes ? `${summary.best}, ${formatMinutes(summary.bestMinutes)}` : 'none yet'}
         </dd>
       </dl>
 
       {hasHistory ? (
         <div className="w-full border-2 border-[var(--ink)] p-3">
-          <div className="text-lg font-bold mb-2">Minutes per day</div>
+          <div className="text-lg font-bold mb-2">Minutes per {unit}</div>
           <div className="w-full h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={past7Days} margin={{ top: 8, right: 8, left: -18, bottom: 0 }} barCategoryGap="28%">
+              <BarChart data={rows} margin={{ top: 8, right: 8, left: -18, bottom: 0 }} barCategoryGap={period === 'month' ? '20%' : '28%'}>
                 <defs>
                   <pattern id="dither" width="4" height="4" patternUnits="userSpaceOnUse">
                     <rect width="4" height="4" fill={paper} />
@@ -83,12 +189,20 @@ export function WeeklyStats({ stats, isDark, onGoToTimer }: WeeklyStatsProps) {
                   </pattern>
                 </defs>
                 <CartesianGrid strokeDasharray="2 4" stroke={ink} vertical={false} />
-                <XAxis dataKey="day" stroke={ink} tick={{ fontFamily: 'Pixelify Sans, monospace', fontSize: 16, fill: ink }} tickLine={false} axisLine={{ strokeWidth: 2 }} />
+                <XAxis
+                  dataKey="label"
+                  // Every fifth day for a month; otherwise the chart skips labels that would overlap
+                  interval={period === 'month' ? 4 : undefined}
+                  stroke={ink}
+                  tick={{ fontFamily: 'Pixelify Sans, monospace', fontSize: 16, fill: ink }}
+                  tickLine={false}
+                  axisLine={{ strokeWidth: 2 }}
+                />
                 <YAxis allowDecimals={false} stroke={ink} tick={{ fontFamily: 'VT323, monospace', fontSize: 18, fill: ink }} tickLine={false} axisLine={{ strokeWidth: 2 }} />
                 <Tooltip content={<DialogTooltip />} cursor={{ fill: 'transparent', stroke: ink, strokeDasharray: '2 2' }} />
                 <Bar dataKey="minutes" fill={ink} stroke={ink} strokeWidth={2} isAnimationActive={false}>
-                  {past7Days.map((entry) => (
-                    <Cell key={entry.date} fill={entry.minutes > 0 ? ink : 'url(#dither)'} />
+                  {rows.map((entry) => (
+                    <Cell key={entry.key} fill={entry.minutes > 0 ? ink : 'url(#dither)'} />
                   ))}
                 </Bar>
               </BarChart>
@@ -108,7 +222,13 @@ export function WeeklyStats({ stats, isDark, onGoToTimer }: WeeklyStatsProps) {
         </div>
       )}
 
-      <p className="mt-3 text-base dim">Stats are stored on this device only.</p>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-base dim">Stats are stored on this device only.</p>
+        <button type="button" onClick={exportCsv} disabled={!hasHistory} className="btn btn-sm">
+          <Download className="w-4 h-4" strokeWidth={2.5} />
+          <span>Export CSV</span>
+        </button>
+      </div>
     </section>
   );
 }

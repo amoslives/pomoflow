@@ -9,6 +9,10 @@ const temporary = await mkdtemp(join(tmpdir(), 'pomoflow-capture-'));
 const browser = await chromium.launch();
 try {
   const page = await browser.newPage({ viewport: { width: 1000, height: 1180 }, colorScheme: 'light' });
+  // Headless Chromium denies notifications, which the timer would report once Start is pressed
+  await page.addInitScript(() => {
+    Object.defineProperty(Notification, 'permission', { configurable: true, get: () => 'granted' });
+  });
   let encrypted = null;
   let revision = 0;
   await page.route('**/api/tasks', async route => {

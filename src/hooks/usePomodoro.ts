@@ -8,6 +8,8 @@ import { SETTING_LIMITS } from '../utils/settings';
 const STORAGE_KEY = 'pomodoro_session_v2';
 // Every fourth completed work session is followed by a long break
 export const SESSIONS_PER_LONG_BREAK = 4;
+// Hidden tabs run timers about once a minute, so a later completion means the tab was not running
+const LATE_ALERT_SECONDS = 120;
 const [LONG_BREAK_MIN, LONG_BREAK_MAX] = SETTING_LIMITS.longBreakMinutes;
 
 interface Session {
@@ -24,7 +26,10 @@ interface Session {
   focusStats: FocusStats;
 }
 
-type Interval = 'work' | 'break' | 'longBreak';
+export type Interval = 'work' | 'break' | 'longBreak';
+export type NotificationStatus = NotificationPermission | 'unsupported';
+// An alert handled after its interval ended, because the tab was not running then
+export interface LateAlert { interval: Interval; seconds: number }
 const INTERVAL_KEYS = { work: 'workMinutes', break: 'breakMinutes', longBreak: 'longBreakMinutes' } as const;
 const INTERVAL_LIMITS = {
   work: SETTING_LIMITS.workMinutes, break: SETTING_LIMITS.breakMinutes, longBreak: SETTING_LIMITS.longBreakMinutes,
@@ -67,6 +72,10 @@ function readSession(): Session {
   } as Session;
 }
 
+function readNotificationStatus(): NotificationStatus {
+  try { return 'Notification' in window ? Notification.permission : 'unsupported'; } catch { return 'unsupported'; }
+}
+
 async function notify(title: string, body: string) {
   try {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
@@ -83,6 +92,10 @@ export function usePomodoro() {
   // Loading the app counts.
   const respondedRef = useRef(true);
   const [timeLeft, setTimeLeft] = useState(() => session.endsAt === null ? session.remaining : secondsRemaining(session.endsAt));
+  const [notificationStatus, setNotificationStatus] = useState(readNotificationStatus);
+  // Whether Start asked for notifications in this page; until then a missing permission is not news
+  const [notificationsAsked, setNotificationsAsked] = useState(false);
+  const [lateAlert, setLateAlert] = useState<LateAlert | null>(null);
 
   const commit = useCallback((next: Session) => {
     // One record commits the completion and its credit together, before any alerts.
@@ -98,6 +111,8 @@ export function usePomodoro() {
     const remaining = secondsRemaining(value.endsAt);
     if (remaining > 0) { setTimeLeft(remaining); return; }
     const work = value.mode === 'work';
+    const lateSeconds = Math.floor((Date.now() - value.endsAt) / 1000);
+    setLateAlert(lateSeconds >= LATE_ALERT_SECONDS ? { interval: currentInterval(value), seconds: lateSeconds } : null);
     const sessionsSinceLongBreak = work ? value.sessionsSinceLongBreak + 1 : value.sessionsSinceLongBreak;
     const longBreak = work && sessionsSinceLongBreak >= SESSIONS_PER_LONG_BREAK;
     const breakMinutes = longBreak ? value.longBreakMinutes : value.breakMinutes;
@@ -123,6 +138,40 @@ export function usePomodoro() {
         : `Timer paused. Press Start for your ${value.workMinutes} minute work session.`);
   }, [commit]);
 
+  // Follows changes made in the browser's site settings while the app is open
+  useEffect(() => {
+    const update = () => setNotificationStatus(readNotificationStatus());
+    let disposed = false;
+    let permission: PermissionStatus | undefined;
+    try {
+      navigator.permissions?.query({ name: 'notifications' }).then((status) => {
+        if (disposed) return;
+        permission = status;
+        status.addEventListener('change', update);
+      }, () => {});
+    } catch { /* Older browsers throw for a permission they do not know */ }
+    window.addEventListener('focus', update);
+    return () => {
+      disposed = true;
+      permission?.removeEventListener('change', update);
+      window.removeEventListener('focus', update);
+    };
+  }, []);
+
+  // Asks while handling a click or key press, which browsers require for the prompt
+  const requestNotifications = useCallback(() => {
+    try {
+      if ('Notification' in window && Notification.permission === 'default') {
+        void Notification.requestPermission()
+          .then((result) => setNotificationStatus(result), () => {})
+          .finally(() => setNotificationsAsked(true));
+        return;
+      }
+    } catch {}
+    setNotificationStatus(readNotificationStatus());
+    setNotificationsAsked(true);
+  }, []);
+
   useEffect(() => {
     // Opening, focusing or using the app is a response; it must count before a catch-up tick
     const respond = () => { if (document.visibilityState === 'visible') respondedRef.current = true; };
@@ -147,14 +196,10 @@ export function usePomodoro() {
     const value = current.current;
     playClickSound();
     if (value.endsAt === null) {
-      try {
-        if ('Notification' in window && Notification.permission === 'default') {
-          void Notification.requestPermission().catch(() => {});
-        }
-      } catch {}
+      requestNotifications();
       commit({ ...value, endsAt: Date.now() + value.remaining * 1000 });
     } else commit({ ...value, remaining: secondsRemaining(value.endsAt), endsAt: null });
-  }, [commit, tick]);
+  }, [commit, tick, requestNotifications]);
 
   const resetTimer = useCallback(() => {
     const value = current.current;
@@ -199,6 +244,9 @@ export function usePomodoro() {
   };
 
   return { ...session, timeLeft, isRunning: session.endsAt !== null, intervalMinutes: intervalMinutes(session),
+    // Why alerts cannot reach the user, once Start has asked for notifications
+    notificationsOff: notificationsAsked && notificationStatus !== 'granted' ? notificationStatus : null,
+    lateAlert, requestNotifications,
     toggleTimer, resetTimer, startWork, applyDurations,
     handleWorkDurationChange: (minutes: number) => changeDuration('work', minutes),
     handleBreakDurationChange: (minutes: number) => changeDuration('break', minutes),

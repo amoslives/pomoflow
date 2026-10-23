@@ -13,6 +13,35 @@ test('Start reports notifications the browser blocked', async ({ page }) => {
   await expect(note).toBeVisible();
 });
 
+test('a timer still running after a reload reports notifications the browser blocked', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(Notification, 'permission', { configurable: true, get: () => 'denied' });
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: /^start$/i }).click();
+  await page.reload();
+  await expect(page.getByRole('button', { name: /^pause$/i })).toBeVisible();
+  await expect(page.getByText('Notifications are blocked for this site. Turn them on in the browser\'s site settings.')).toBeVisible();
+});
+
+test('Start Work reports notifications the browser blocked', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(Notification, 'permission', { configurable: true, get: () => 'denied' });
+  });
+  await page.clock.install();
+  await page.goto('/');
+  await page.getByRole('button', { name: /^start$/i }).click();
+  await page.clock.fastForward(25 * 60 * 1000);
+  await expect(page.locator('.badge')).toHaveText('Break');
+  await page.getByRole('button', { name: /^pause$/i }).click();
+  // A paused break in a new page has not asked yet
+  await page.reload();
+  const note = page.getByText('Notifications are blocked for this site. Turn them on in the browser\'s site settings.');
+  await expect(note).toHaveCount(0);
+  await page.getByRole('button', { name: 'Start Work', exact: true }).click();
+  await expect(note).toBeVisible();
+});
+
 test('a dismissed prompt can be answered from the timer', async ({ page }) => {
   await page.addInitScript(() => {
     let permission: NotificationPermission = 'default';

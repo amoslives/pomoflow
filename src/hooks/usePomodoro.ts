@@ -93,8 +93,9 @@ export function usePomodoro() {
   const respondedRef = useRef(true);
   const [timeLeft, setTimeLeft] = useState(() => session.endsAt === null ? session.remaining : secondsRemaining(session.endsAt));
   const [notificationStatus, setNotificationStatus] = useState(readNotificationStatus);
-  // Whether Start asked for notifications in this page; until then a missing permission is not news
-  const [notificationsAsked, setNotificationsAsked] = useState(false);
+  // Whether Start asked for notifications; until then a missing permission is not news.
+  // A timer still running from an earlier page was started there, so it has asked.
+  const [notificationsAsked, setNotificationsAsked] = useState(() => session.endsAt !== null);
   const [lateAlert, setLateAlert] = useState<LateAlert | null>(null);
 
   const commit = useCallback((next: Session) => {
@@ -212,8 +213,9 @@ export function usePomodoro() {
     if (value.mode !== 'break') return;
     const remaining = value.workMinutes * 60;
     playClickSound();
+    requestNotifications();
     commit({ ...value, mode: 'work', longBreak: false, remaining, endsAt: Date.now() + remaining * 1000 });
-  }, [commit]);
+  }, [commit, requestNotifications]);
 
   const changeDuration = (interval: Interval, minutes: number) => {
     tick();

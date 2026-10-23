@@ -33,7 +33,6 @@ The look is a one-bit classic desktop (menu bar, pinstriped window title bars, b
 - `vite.config.ts` `DISABLE_HMR` logic is marked "Do not modify" — leave it as is.
 - `.data/tasks.sqlite` is local runtime state. `server.ts` imports `.data/tasks.json` once and retains that old file as a backup.
 - Timer state and focus credit share the atomic `pomodoro_session_v2` local-storage record. Completion effects stay outside React state updaters.
-- Focus sounds are rendered by `src/utils/focusSounds.ts` (pure, unit-tested) as seamless 30-second stereo loops and played through Web Audio by `src/utils/audio.ts`; they never load YouTube. In `AudioPlayer` a chosen focus sound replaces the queue's track as the source and leaves the queue alone: choosing one pauses YouTube in place, and playing a YouTube track, or YouTube starting by itself, leaves the focus sound. Keep YouTube-only state and paths (`isPlaying`, `stopYouTube`, the tap prompt) separate from `isFocusPlaying`.
 - `wrangler.toml` contains the production D1 and legacy-KV binding IDs; treat it as the Pages configuration source of truth.
 - D1 schema changes belong in numbered files under `migrations/`.
 - `public/404.html` makes Cloudflare Pages return a real 404 for unknown paths; without it Pages serves `index.html` with status 200 for every path. `server.ts` production mode does the same.

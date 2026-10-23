@@ -3,21 +3,20 @@
 [![CI](https://github.com/amoslives/pomoflow/actions/workflows/ci.yml/badge.svg)](https://github.com/amoslives/pomoflow/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 
-A one-bit Pomodoro timer. Tasks, built-in focus sounds, optional YouTube playback, focus stats, and encrypted cross-device sync by scanning a QR code. No account or Pomoflow analytics.
+A one-bit Pomodoro timer. Tasks, optional YouTube playback, focus stats, and encrypted cross-device sync by scanning a QR code. No account or Pomoflow analytics.
 
 **Try it:** [pomoflow.pages.dev](https://pomoflow.pages.dev)
 
-![Pomoflow demo: tasks, running the timer, YouTube settings, focus sounds, focus stats, dark mode and encrypted pairing by QR code](docs/demo.gif)
+![Pomoflow demo: tasks, running the timer, YouTube settings, focus stats, dark mode and encrypted pairing by QR code](docs/demo.gif)
 
 ## What it does
 
 - Work and break timers with a completion chime and best-effort browser notifications. Countdown uses an absolute deadline and survives refresh, pause and app relaunch. Suspended browsers catch up when they resume; they cannot guarantee an alarm while suspended. Only the session actually started earns credit. A break starts when a work session ends, and the next work session starts after the break with a notification. If you don't open the app or tap a notification for a whole work-and-break cycle, the timer pauses before the next work session, so leaving the app open adds at most one session. Every fourth work session is followed by a long break, 15 minutes by default. The tab title shows the countdown while the timer runs, and **Keep screen on while running** stops a phone or tablet from sleeping during a session, in browsers that support it.
 - A task list that syncs between your devices. Pair a device by scanning a QR code or opening a link. There is no sign-up.
 - YouTube videos, playlists and live streams, with a queue, shuffle, repeat and seeking. Press **Load** to add a source. The video is hidden by default so playback runs from the media bar alone; press **Video** to show the player. On the Stats view the player shrinks to a now-playing bar and keeps playing. Playback position survives a refresh, and music keeps playing when you switch to another app unless the browser or YouTube pauses it. The iOS home screen app stops music in the background; when you return, it resumes from where it stopped.
-- Focus sounds: rain, ocean waves, a stream, wind, a fireplace, a fan, and white, pink and brown noise. Open **Queue** and expand **Focus sounds**. Your device generates them, so they play offline and never contact YouTube. Choosing one pauses YouTube where it is, and **Stop** returns to your queue. The other jukebox controls work on them as on any track, except seeking, and the chosen sound survives a refresh. If the browser suspends sound in the background, it resumes when you return.
 - Focus stats for the last 7 days, 30 days or 12 months, counted from work timers that reached 00:00. Pausing or resetting does not count. A daily goal, 8 timers by default, shows today's progress, and a streak counts the days in a row with at least one timer. **Export CSV** downloads every recorded day. Paired devices add up their stats.
 - Light, dark and system themes in a classic desktop look. Keyboard shortcuts: `Space` start or pause, `R` reset, `D` theme.
-- Installs as an app with its own window and launcher icon: **Install** in Chrome or Edge, **Add to Dock** in Safari on a Mac, **Add to Home Screen** on iPhone and Android. After the first visit the app works offline, focus sounds included; sync and YouTube need a connection.
+- Installs as an app with its own window and launcher icon: **Install** in Chrome or Edge, **Add to Dock** in Safari on a Mac, **Add to Home Screen** on iPhone and Android. After the first visit the app opens offline; sync and YouTube need a connection.
 
 <p>
   <img src="docs/screenshot-light.png" alt="Pomoflow timer window in light mode" width="49%">
@@ -46,13 +45,13 @@ Encryption protects each new snapshot of the shared document in transit through 
 
 ## Third-party connections
 
-YouTube is loaded only when you play or load a YouTube source; focus sounds never load it. Its privacy-enhanced embed may still collect playback data and use cookies. Google Fonts loads the UI fonts. These services receive network information such as your IP address. Pomoflow itself adds no analytics scripts. See [Google's privacy policy](https://policies.google.com/privacy) and [YouTube's terms](https://www.youtube.com/t/terms).
+YouTube is loaded only when you play or load a source. Its privacy-enhanced embed may still collect playback data and use cookies. Google Fonts loads the UI fonts. These services receive network information such as your IP address. Pomoflow itself adds no analytics scripts. See [Google's privacy policy](https://policies.google.com/privacy) and [YouTube's terms](https://www.youtube.com/t/terms).
 
 ## Tech stack
 
 - React 19, TypeScript, Vite and Tailwind CSS v4
 - Recharts for the stats chart, loaded only when the Stats view opens
-- YouTube IFrame Player API; Web Audio for the chime and the focus sounds, which the browser generates
+- YouTube IFrame Player API, Web Audio for the chime
 - Express for local development, Cloudflare Pages Functions and D1 in production
 - Node's native test runner for unit and API tests, Playwright for desktop and mobile browser tests
 

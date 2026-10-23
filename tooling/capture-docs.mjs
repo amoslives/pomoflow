@@ -48,16 +48,6 @@ try {
   await page.getByRole('button', { name: 'Load from YouTube' }).click();
   await frame();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'Toggle playlist and queue' }).click();
-  await page.getByRole('button', { name: 'Expand Focus sounds' }).click();
-  await page.getByRole('button', { name: 'Play focus sound 1: Rain' }).click();
-  await page.evaluate(() => document.querySelector('[aria-label="Music player"]').scrollIntoView({ block: 'end' }));
-  // Scrolling leaves the pointer over another sound, which would show its hover border
-  await page.mouse.move(0, 0);
-  await frame();
-  await page.getByRole('button', { name: 'Stop playback' }).click();
-  await page.getByRole('button', { name: 'Close queue' }).click();
-  await page.evaluate(() => window.scrollTo(0, 0));
   await page.getByRole('button', { name: 'Stats', exact: true }).click();
   await page.getByText('8h 45m', { exact: true }).waitFor();
   await page.screenshot({ path: 'docs/screenshot-stats.png' });
@@ -88,7 +78,7 @@ try {
     const title = document.createElement('h2');
     title.textContent = 'Pomoflow'; title.style.cssText = 'font-size:56px;line-height:1;margin-bottom:16px;font-weight:bold';
     hero.append(title);
-    for (const line of ['A one-bit Pomodoro timer.', '□ No account needed', '□ Encrypted sync by QR', '□ Built-in focus sounds', '□ Optional YouTube player', '□ Open source, Apache 2.0']) {
+    for (const line of ['A one-bit Pomodoro timer.', '□ No account needed', '□ Encrypted task sync by QR', '□ Optional YouTube player', '□ Open source, Apache 2.0']) {
       const text = document.createElement('p'); text.textContent = line; text.style.cssText = 'font-size:24px;margin:8px 0'; hero.append(text);
     }
     document.body.append(hero);

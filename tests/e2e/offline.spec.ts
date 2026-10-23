@@ -26,16 +26,6 @@ test('the installed app opens offline after its first visit', async ({ page, con
   await expect(another.getByRole('button', { name: /^start$/i })).toBeVisible();
 });
 
-test('focus sounds play offline', async ({ page, context }) => {
-  await context.setOffline(true);
-  await page.reload();
-  await page.getByRole('button', { name: 'Toggle playlist and queue' }).click();
-  await page.getByRole('button', { name: 'Expand Focus sounds' }).click();
-  await page.getByRole('button', { name: 'Play focus sound 1: Rain' }).click();
-  await expect(page.locator('section[aria-label="Music player"] [aria-live="polite"]')).toHaveText('PlayingRain');
-  await expect(page.getByRole('alert')).toHaveCount(0);
-});
-
 test('a finished work session notifies through the service worker', async ({ page }) => {
   // The headless Chromium that CI runs denies notifications whatever the permission, so report
   // the permission as granted and record the call. The registration is the route Android needs.

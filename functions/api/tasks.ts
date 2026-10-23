@@ -11,6 +11,8 @@ export interface D1Database {
 interface Env {
   TASKS_DB?: D1Database;
   TASKS_KV?: { get(key: string): Promise<string | null>; delete(key: string): Promise<void> };
+  // Requests allowed per client IP per minute; 120 unless set. Only the local test server raises it.
+  TASKS_RATE_LIMIT?: string;
 }
 interface EventContext { request: Request; env: Env; params: Record<string, string> }
 interface Room { tasks_json: string; revision: number; updated_at: number; revoked_at: number | null }
@@ -38,7 +40,7 @@ const getRoom = (db: D1Database, hash: string) => db.prepare(
   'SELECT tasks_json, revision, updated_at, revoked_at FROM task_rooms WHERE credential_hash = ?1'
 ).bind(hash).first<Room>();
 
-async function rateLimit(request: Request, db: D1Database): Promise<Response | null> {
+async function rateLimit(request: Request, db: D1Database, limit: number): Promise<Response | null> {
   const now = Date.now();
   const client = await hashCredential(request.headers.get('CF-Connecting-IP') || 'unknown');
   await db.prepare('DELETE FROM task_rate_limits WHERE client_hash IN (SELECT client_hash FROM task_rate_limits WHERE expires_at <= ?1 LIMIT 100)').bind(now).run();
@@ -47,7 +49,7 @@ async function rateLimit(request: Request, db: D1Database): Promise<Response | n
     count = CASE WHEN expires_at <= ?3 THEN 1 ELSE count + 1 END,
     expires_at = CASE WHEN expires_at <= ?3 THEN ?2 ELSE expires_at END
     RETURNING count, expires_at`).bind(client, now + 60_000, now).first<{ count: number; expires_at: number }>();
-  if (!bucket || bucket.count <= 120) return null;
+  if (!bucket || bucket.count <= limit) return null;
   const response = json(request, { error: 'Too many requests' }, 429);
   response.headers.set('Retry-After', String(Math.max(1, Math.ceil((bucket.expires_at - now) / 1000))));
   return response;
@@ -78,7 +80,7 @@ export async function handleTaskRequest({ request, env }: EventContext): Promise
   const db = env.TASKS_DB;
   if (!db) return json(request, { error: 'Task storage is unavailable' }, 503);
   try {
-    const limited = await rateLimit(request, db);
+    const limited = await rateLimit(request, db, Number(env.TASKS_RATE_LIMIT) || 120);
     if (limited) return limited;
     // No credential-bearing query parameters or request-body fallback.
     const credential = request.headers.get('Authorization')?.match(/^Bearer\s+([^\s]+)$/i)?.[1] || '';

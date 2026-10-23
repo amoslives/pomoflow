@@ -16,7 +16,9 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'npm run dev',
+      // Every test reaches the API from 127.0.0.1, so all of them share one rate-limit bucket.
+      // The production limit of 120 requests a minute suits one person's devices, not a test suite.
+      command: 'TASKS_RATE_LIMIT=1000 npm run dev',
       url: 'http://127.0.0.1:3000',
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,

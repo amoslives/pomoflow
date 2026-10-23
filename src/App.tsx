@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Header } from './components/Header';
 import { TimerCircle } from './components/TimerCircle';
 import { TaskList } from './components/TaskList';
@@ -15,8 +15,21 @@ import { usePomodoro } from './hooks/usePomodoro';
 import { useTaskSync } from './hooks/useTaskSync';
 import { useWakeLock, wakeLockSupported } from './hooks/useWakeLock';
 import { formatTime } from './utils/timer';
+import { parseStoredInteger } from './utils/storage';
+import { SETTING_LIMITS, type SyncedSettings } from './utils/settings';
+import { sumStats } from './utils/stats';
+import { generateDeviceId, isDeviceId } from './utils/sync';
 
 const DEFAULT_TITLE = document.title;
+
+// Names this device's entry in a sync room's stats
+function readDeviceId(): string {
+  const saved = localStorage.getItem('pomodoro_device_id');
+  if (saved && isDeviceId(saved)) return saved;
+  const id = generateDeviceId();
+  localStorage.setItem('pomodoro_device_id', id);
+  return id;
+}
 const WeeklyStats = lazy(() => import('./components/WeeklyStats').then(module => ({ default: module.WeeklyStats })));
 
 export default function App() {
@@ -26,13 +39,41 @@ export default function App() {
   const isDark = themeMode === 'system' ? systemIsDark : themeMode === 'dark';
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const timer = usePomodoro();
-  const sync = useTaskSync();
+  const [deviceId] = useState(readDeviceId);
+  const [dailyGoal, setDailyGoal] = useState(() => parseStoredInteger(localStorage.getItem('pomodoro_daily_goal'), 8, ...SETTING_LIMITS.dailyGoal));
+  // When a shared setting last changed. Settings sync only once one has changed, so a device
+  // that was never set up does not overwrite another's.
+  const [settingsUpdatedAt, setSettingsUpdatedAt] = useState(() => parseStoredInteger(localStorage.getItem('pomodoro_settings_updated_at'), 0, 0, Number.MAX_SAFE_INTEGER));
+  const settings: SyncedSettings | null = settingsUpdatedAt ? {
+    workMinutes: timer.workMinutes, breakMinutes: timer.breakMinutes, longBreakMinutes: timer.longBreakMinutes,
+    dailyGoal, updatedAt: settingsUpdatedAt,
+  } : null;
+  const changeSetting = (change: () => void) => { change(); setSettingsUpdatedAt(Date.now()); };
+  const sync = useTaskSync({
+    deviceId, ownStats: timer.focusStats, settings,
+    onRemoteSettings: (remote) => {
+      timer.applyDurations(remote);
+      setDailyGoal(remote.dailyGoal);
+      setSettingsUpdatedAt(remote.updatedAt);
+    },
+  });
+  const combinedStats = useMemo(() => sumStats(timer.focusStats, ...Object.values(sync.peerStats)), [timer.focusStats, sync.peerStats]);
   const cycleTheme = useCallback(() => setThemeMode(current => nextThemeMode(current)), []);
   const [keepAwake, setKeepAwake] = useState(() => localStorage.getItem('pomodoro_keep_awake') === 'true');
   useWakeLock(keepAwake && timer.isRunning);
   const intervalName = timer.mode === 'work' ? 'Work' : timer.longBreak ? 'Long break' : 'Break';
 
   useEffect(() => { localStorage.setItem('pomodoro_keep_awake', String(keepAwake)); }, [keepAwake]);
+  useEffect(() => { localStorage.setItem('pomodoro_daily_goal', String(dailyGoal)); }, [dailyGoal]);
+  useEffect(() => { localStorage.setItem('pomodoro_settings_updated_at', String(settingsUpdatedAt)); }, [settingsUpdatedAt]);
+
+  // Share a finished session or a changed setting with paired devices right away
+  const lastShared = useRef({ stats: timer.focusStats, updatedAt: settingsUpdatedAt });
+  useEffect(() => {
+    if (lastShared.current.stats === timer.focusStats && lastShared.current.updatedAt === settingsUpdatedAt) return;
+    lastShared.current = { stats: timer.focusStats, updatedAt: settingsUpdatedAt };
+    void sync.sync();
+  }, [timer.focusStats, settingsUpdatedAt, sync.sync]);
 
   // The countdown shows in the tab title while the timer runs
   useEffect(() => {
@@ -90,8 +131,9 @@ export default function App() {
                 sessionsTowardLongBreak={timer.longBreak ? null : timer.sessionsSinceLongBreak}
                 workMinutes={timer.workMinutes} breakMinutes={timer.breakMinutes} longBreakMinutes={timer.longBreakMinutes}
                 onToggleStart={timer.toggleTimer} onReset={timer.resetTimer} onStartWork={timer.startWork}
-                onChangeWorkMinutes={timer.handleWorkDurationChange} onChangeBreakMinutes={timer.handleBreakDurationChange}
-                onChangeLongBreakMinutes={timer.handleLongBreakDurationChange}
+                onChangeWorkMinutes={minutes => changeSetting(() => timer.handleWorkDurationChange(minutes))}
+                onChangeBreakMinutes={minutes => changeSetting(() => timer.handleBreakDurationChange(minutes))}
+                onChangeLongBreakMinutes={minutes => changeSetting(() => timer.handleLongBreakDurationChange(minutes))}
                 keepAwake={wakeLockSupported ? keepAwake : null} onChangeKeepAwake={setKeepAwake} />
               <TaskList tasks={sync.tasks} syncKey={sync.syncKey} syncStatus={sync.syncStatus}
                 onOpenSyncModal={() => setIsSyncModalOpen(true)}
@@ -101,7 +143,8 @@ export default function App() {
                 onDeleteTask={id => { playClickSound(); sync.updateTasks(deleteTask(sync.tasks, id)); }} />
               {sync.syncError && <p role="alert" className="mt-2 text-base">{sync.syncError}</p>}
             </> : <Suspense fallback={<div className="min-h-80 flex items-center justify-center text-xl">Loading stats...</div>}>
-              <WeeklyStats stats={timer.focusStats} isDark={isDark} onGoToTimer={() => setActiveTab('timer')} />
+              <WeeklyStats stats={combinedStats} isDark={isDark} onGoToTimer={() => setActiveTab('timer')}
+                goal={dailyGoal} onChangeGoal={goal => changeSetting(() => setDailyGoal(goal))} synced={Boolean(sync.syncKey)} />
             </Suspense>}
           </div>
         </main>
@@ -122,7 +165,7 @@ export default function App() {
         <div className="dialog w-full max-w-lg p-5">
           <h2 id="pair-title" className="text-2xl font-bold">Pair with this task list?</h2>
           <code className="block break-all font-data my-2">{sync.pendingPairKey}</code>
-          <p className="text-lg">This switches this device to the linked room. Choose whether to share your {sync.tasks.length} local tasks. A local backup is kept when switching.</p>
+          <p className="text-lg">This switches this device to the linked room. Choose whether to share your {sync.tasks.length} local tasks. Focus stats and timer settings sync with the room either way. A local backup is kept when switching.</p>
           <div className="flex flex-col gap-2 mt-4">
             <button className="btn btn-default" disabled={sync.pairingBusy} onClick={() => void sync.confirmPair(false)}>Use room tasks only</button>
             <button className="btn" disabled={sync.pairingBusy} onClick={() => void sync.confirmPair(true)}>Merge and share my tasks</button>

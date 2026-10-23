@@ -3,12 +3,12 @@ import { parseStoredInteger, parseStoredJson } from '../utils/storage';
 import { migrateLegacyStats, normalizeFocusStats, recordFocusSession, type FocusStats } from '../utils/stats';
 import { secondsRemaining } from '../utils/timer';
 import { playBreakCompleteChime, playClickSound, playWorkCompleteChime } from '../utils/audio';
+import { SETTING_LIMITS } from '../utils/settings';
 
 const STORAGE_KEY = 'pomodoro_session_v2';
 // Every fourth completed work session is followed by a long break
 export const SESSIONS_PER_LONG_BREAK = 4;
-const LONG_BREAK_MIN = 5;
-const LONG_BREAK_MAX = 45;
+const [LONG_BREAK_MIN, LONG_BREAK_MAX] = SETTING_LIMITS.longBreakMinutes;
 
 interface Session {
   mode: 'work' | 'break';
@@ -26,7 +26,9 @@ interface Session {
 
 type Interval = 'work' | 'break' | 'longBreak';
 const INTERVAL_KEYS = { work: 'workMinutes', break: 'breakMinutes', longBreak: 'longBreakMinutes' } as const;
-const INTERVAL_LIMITS = { work: [1, 90], break: [1, 45], longBreak: [LONG_BREAK_MIN, LONG_BREAK_MAX] } as const;
+const INTERVAL_LIMITS = {
+  work: SETTING_LIMITS.workMinutes, break: SETTING_LIMITS.breakMinutes, longBreak: SETTING_LIMITS.longBreakMinutes,
+} as const;
 
 function currentInterval(value: Session): Interval {
   return value.mode === 'work' ? 'work' : value.longBreak ? 'longBreak' : 'break';
@@ -189,8 +191,15 @@ export function usePomodoro() {
     commit({ ...value, [durationKey]: nextMinutes, endsAt, remaining: secondsRemaining(endsAt) });
   };
 
+  // Lengths from a paired device; like the sliders, a running interval keeps at least a minute
+  const applyDurations = (durations: { workMinutes: number; breakMinutes: number; longBreakMinutes: number }) => {
+    changeDuration('work', durations.workMinutes);
+    changeDuration('break', durations.breakMinutes);
+    changeDuration('longBreak', durations.longBreakMinutes);
+  };
+
   return { ...session, timeLeft, isRunning: session.endsAt !== null, intervalMinutes: intervalMinutes(session),
-    toggleTimer, resetTimer, startWork,
+    toggleTimer, resetTimer, startWork, applyDurations,
     handleWorkDurationChange: (minutes: number) => changeDuration('work', minutes),
     handleBreakDurationChange: (minutes: number) => changeDuration('break', minutes),
     handleLongBreakDurationChange: (minutes: number) => changeDuration('longBreak', minutes) };

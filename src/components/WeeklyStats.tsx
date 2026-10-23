@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   ResponsiveContainer,
   BarChart,
@@ -19,12 +19,16 @@ import {
   getPastMonthsData,
   summarizePeriod,
 } from '../utils/stats';
-import { parseStoredInteger } from '../utils/storage';
+import { SETTING_LIMITS } from '../utils/settings';
 
 interface WeeklyStatsProps {
+  // This device's stats, plus its paired devices' when synced
   stats: FocusStats;
   isDark: boolean;
   onGoToTimer: () => void;
+  goal: number;
+  onChangeGoal: (goal: number) => void;
+  synced: boolean;
 }
 
 type Period = 'week' | 'month' | 'year';
@@ -34,8 +38,7 @@ const PERIODS: { id: Period; label: string; heading: string }[] = [
   { id: 'year', label: 'Year', heading: 'Last 12 months' },
 ];
 
-const GOAL_KEY = 'pomodoro_daily_goal';
-const GOAL_MAX = 24;
+const [GOAL_MIN, GOAL_MAX] = SETTING_LIMITS.dailyGoal;
 
 // One bar: `label` is the axis label, `name` names it in the summary, `title` heads its tooltip
 interface ChartRow {
@@ -84,10 +87,8 @@ function DialogTooltip({ active, payload }: any) {
   );
 }
 
-export function WeeklyStats({ stats, isDark, onGoToTimer }: WeeklyStatsProps) {
+export function WeeklyStats({ stats, isDark, onGoToTimer, goal, onChangeGoal, synced }: WeeklyStatsProps) {
   const [period, setPeriod] = useState<Period>('week');
-  const [goal, setGoal] = useState(() => parseStoredInteger(localStorage.getItem(GOAL_KEY), 8, 1, GOAL_MAX));
-  useEffect(() => { localStorage.setItem(GOAL_KEY, String(goal)); }, [goal]);
 
   const now = new Date();
   const today = stats[formatDateKey(now)]?.sessions ?? 0;
@@ -128,11 +129,11 @@ export function WeeklyStats({ stats, isDark, onGoToTimer }: WeeklyStatsProps) {
           </div>
           <div className="flex items-center gap-2 text-lg">
             <span>Goal</span>
-            <button type="button" onClick={() => setGoal(goal - 1)} disabled={goal <= 1} aria-label="Lower daily goal" className="btn btn-sm btn-icon">
+            <button type="button" onClick={() => onChangeGoal(goal - 1)} disabled={goal <= GOAL_MIN} aria-label="Lower daily goal" className="btn btn-sm btn-icon">
               <Minus strokeWidth={3} />
             </button>
             <span className="font-data text-xl w-6 text-center" aria-live="polite">{goal}</span>
-            <button type="button" onClick={() => setGoal(goal + 1)} disabled={goal >= GOAL_MAX} aria-label="Raise daily goal" className="btn btn-sm btn-icon">
+            <button type="button" onClick={() => onChangeGoal(goal + 1)} disabled={goal >= GOAL_MAX} aria-label="Raise daily goal" className="btn btn-sm btn-icon">
               <Plus strokeWidth={3} />
             </button>
           </div>
@@ -223,7 +224,7 @@ export function WeeklyStats({ stats, isDark, onGoToTimer }: WeeklyStatsProps) {
       )}
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-base dim">Stats are stored on this device only.</p>
+        <p className="text-base dim">{synced ? 'Stats include your paired devices.' : 'Stats are stored on this device only.'}</p>
         <button type="button" onClick={exportCsv} disabled={!hasHistory} className="btn btn-sm">
           <Download className="w-4 h-4" strokeWidth={2.5} />
           <span>Export CSV</span>

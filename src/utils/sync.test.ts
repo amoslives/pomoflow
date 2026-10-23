@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isValidSyncKey, isSecureSyncKey, normalizeSyncKey, extractSyncKey, generateSyncKey, mergeTasks, applyPendingTasks, encryptTasks, decryptTasks, syncCredential } from './sync.ts';
+import {
+  isValidSyncKey, isSecureSyncKey, normalizeSyncKey, extractSyncKey, generateSyncKey, mergeTasks, applyPendingTasks,
+  encryptDocument, decryptDocument, decryptTasks, syncCredential, generateDeviceId, isDeviceId, documentChanged, publishDocument,
+  type SyncDocument,
+} from './sync.ts';
 import { createTask, type Task } from './tasks.ts';
+
+const encryptTasks = (key: string, tasks: Task[]) => encryptDocument(key, { tasks, stats: {}, settings: null });
 
 test('isValidSyncKey accepts valid keys and rejects invalid', () => {
   assert.equal(isValidSyncKey('focus-1234'), false);
@@ -107,4 +113,72 @@ test('an oversized title can be removed without blocking future sync', async () 
   const task = createTask('x'.repeat(501));
   await assert.rejects(encryptTasks(key, [task]), /Shorten task titles/);
   assert.deepEqual(await decryptTasks(key, await encryptTasks(key, [{ ...task, deletedAt: 1 }])), []);
+});
+
+const settings = { workMinutes: 30, breakMinutes: 5, longBreakMinutes: 20, dailyGoal: 6, updatedAt: 1000 };
+
+test('a document carries tasks, each device\'s stats and the shared settings', async () => {
+  const key = generateSyncKey();
+  const phone = generateDeviceId();
+  const document: SyncDocument = {
+    tasks: [createTask('Shared task')],
+    stats: { [phone]: { '2026-10-22': { sessions: 2, minutes: 50 } } },
+    settings,
+  };
+  assert.ok(isDeviceId(phone));
+  const ciphertext = await encryptDocument(key, document);
+  assert.ok(!JSON.stringify(ciphertext).includes('2026-10-22'));
+  assert.deepEqual(await decryptDocument(key, ciphertext), document);
+  assert.deepEqual(await decryptTasks(key, ciphertext), document.tasks);
+});
+
+test('malformed stats entries and settings are dropped, not trusted', async () => {
+  const key = generateSyncKey();
+  const phone = generateDeviceId();
+  const ciphertext = await encryptDocument(key, {
+    tasks: [],
+    stats: { [phone]: { '2026-10-22': { sessions: 1, minutes: 25 } }, 'not-a-device': { '2026-10-22': { sessions: 9, minutes: 9 } } },
+    settings: { ...settings, workMinutes: 500 },
+  });
+  const document = await decryptDocument(key, ciphertext);
+  assert.deepEqual(Object.keys(document.stats), [phone]);
+  assert.equal(document.settings, null);
+});
+
+test('rooms written before stats sync, holding only a task array, still read', async () => {
+  // The same encryption the earlier task-only format used
+  const key = generateSyncKey();
+  const tasks = [createTask('Old room task')];
+  const encoder = new TextEncoder();
+  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(`pomoflow:encryption:v2:${key}`));
+  const cryptoKey = await crypto.subtle.importKey('raw', digest, 'AES-GCM', false, ['encrypt']);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: encoder.encode('pomoflow:tasks:v2') }, cryptoKey, encoder.encode(JSON.stringify(tasks)));
+  const base64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
+  const legacy = { version: 2, iv: base64(iv), data: base64(new Uint8Array(data)) };
+  assert.deepEqual(await decryptDocument(key, legacy), { tasks, stats: {}, settings: null });
+  assert.deepEqual(await decryptDocument(key, null), { tasks: [], stats: {}, settings: null });
+});
+
+test('a device publishes its own stats and newer settings, and leaves other entries alone', () => {
+  const laptop = generateDeviceId();
+  const phone = generateDeviceId();
+  const remote: SyncDocument = {
+    tasks: [],
+    stats: { [laptop]: { '2026-10-21': { sessions: 1, minutes: 25 } }, [phone]: { '2026-10-20': { sessions: 1, minutes: 25 } } },
+    settings,
+  };
+  const own = { '2026-10-20': { sessions: 1, minutes: 25 }, '2026-10-22': { sessions: 3, minutes: 75 } };
+
+  assert.equal(documentChanged(remote, phone, remote.stats[phone]!, null), false);
+  assert.equal(documentChanged(remote, phone, {}, null), false);
+  assert.equal(documentChanged(remote, phone, own, null), true);
+  assert.equal(documentChanged(remote, phone, remote.stats[phone]!, { ...settings, updatedAt: 999 }), false);
+  assert.equal(documentChanged(remote, phone, remote.stats[phone]!, { ...settings, dailyGoal: 9, updatedAt: 1001 }), true);
+
+  const published = publishDocument(remote, [], phone, own, { ...settings, dailyGoal: 9, updatedAt: 1001 });
+  assert.deepEqual(published.stats, { [laptop]: remote.stats[laptop], [phone]: own });
+  assert.equal(published.settings!.dailyGoal, 9);
+  assert.equal(publishDocument(remote, [], phone, own, { ...settings, dailyGoal: 9, updatedAt: 999 }).settings, settings);
+  assert.deepEqual(Object.keys(publishDocument(remote, [], generateDeviceId(), {}, null).stats), [laptop, phone]);
 });

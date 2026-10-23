@@ -2,7 +2,7 @@
   "id": "/",
   "name": "Pomoflow",
   "short_name": "Pomoflow",
-  "description": "A one-bit Pomodoro timer with tasks, YouTube audio and QR-paired cross-device sync. No account needed.",
+  "description": "A one-bit Pomodoro timer with tasks, focus sounds, YouTube audio and QR-paired cross-device sync. No account needed.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

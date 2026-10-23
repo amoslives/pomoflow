@@ -1,0 +1,116 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  FOCUS_SOUNDS,
+  LOOP_SECONDS,
+  focusSoundGain,
+  isFocusSoundId,
+  renderFocusSound,
+  waveHeight,
+  type FocusSoundId,
+} from './focusSounds.ts';
+
+// A lower rate than the app's keeps the tests quick; the sounds are built the same way
+const RATE = 16000;
+
+// The same random numbers on every run (mulberry32)
+function seeded(seed: number) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const rendered = new Map<FocusSoundId, Float32Array[]>();
+function render(id: FocusSoundId) {
+  if (!rendered.has(id)) rendered.set(id, renderFocusSound(id, RATE, seeded(7)));
+  return rendered.get(id)!;
+}
+
+function rms(samples: Float32Array, start = 0, end = samples.length) {
+  let sum = 0;
+  for (let i = start; i < end; i++) sum += samples[i]! ** 2;
+  return Math.sqrt(sum / (end - start));
+}
+
+function meanStep(samples: Float32Array) {
+  let sum = 0;
+  for (let i = 1; i < samples.length; i++) sum += Math.abs(samples[i]! - samples[i - 1]!);
+  return sum / (samples.length - 1);
+}
+
+// Loudness of each second of the loop
+function secondLevels(samples: Float32Array) {
+  return Array.from({ length: LOOP_SECONDS }, (_, second) => rms(samples, second * RATE, (second + 1) * RATE));
+}
+
+test('every focus sound is a stereo loop of the full length, within range and at a comfortable level', () => {
+  for (const { id } of FOCUS_SOUNDS) {
+    const channels = render(id);
+    assert.equal(channels.length, 2, id);
+    for (const samples of channels) {
+      assert.equal(samples.length, LOOP_SECONDS * RATE, id);
+      assert.ok(samples.every((sample) => Number.isFinite(sample) && Math.abs(sample) <= 0.95), id);
+      const level = rms(samples);
+      assert.ok(level > 0.05 && level < 0.2, `${id} level ${level}`);
+    }
+    assert.notDeepEqual(channels[0], channels[1], `${id} channels differ`);
+  }
+});
+
+test('the end of each loop runs into its start without a jump', () => {
+  for (const { id } of FOCUS_SOUNDS) {
+    for (const samples of render(id)) {
+      const seam = Math.abs(samples[samples.length - 1]! - samples[0]!);
+      // Brown noise and the surf move slowly, so a cut would stand out against their usual step
+      const limit = id === 'brown' || id === 'ocean' ? 4 * meanStep(samples) : 0.95;
+      assert.ok(seam <= limit, `${id} seam ${seam} over ${limit}`);
+    }
+  }
+});
+
+test('brown noise is darker than pink, and pink darker than white', () => {
+  const brightness = (id: FocusSoundId) => meanStep(render(id)[0]!) / rms(render(id)[0]!);
+  assert.ok(brightness('brown') < brightness('pink'));
+  assert.ok(brightness('pink') < brightness('white'));
+});
+
+test('the ocean swells and falls while the noises and rain stay steady', () => {
+  const swing = (id: FocusSoundId) => {
+    const levels = secondLevels(render(id)[0]!);
+    return Math.max(...levels) / Math.min(...levels);
+  };
+  assert.ok(swing('ocean') > 3, `ocean ${swing('ocean')}`);
+  for (const id of ['rain', 'white', 'pink', 'brown'] as const) assert.ok(swing(id) < 2, `${id} ${swing(id)}`);
+});
+
+test('waves repeat with the loop and each starts and ends calm', () => {
+  for (let t = 0; t < LOOP_SECONDS; t += 0.37) {
+    const height = waveHeight(t);
+    assert.ok(height >= 0 && height <= 1);
+    assert.ok(Math.abs(height - waveHeight(t + LOOP_SECONDS)) < 1e-9);
+  }
+  // 6.5 s is where the first wave ends and the second begins
+  for (const t of [0, 6.5, LOOP_SECONDS]) assert.ok(waveHeight(t) < 1e-9, `at ${t}`);
+  assert.ok(waveHeight(2.5) > 0.9);
+});
+
+test('rendering the same random numbers gives the same sound', () => {
+  assert.deepEqual(renderFocusSound('rain', RATE, seeded(3)), renderFocusSound('rain', RATE, seeded(3)));
+});
+
+test('focusSoundGain follows the volume slider on a squared curve', () => {
+  assert.equal(focusSoundGain(0), 0);
+  assert.equal(focusSoundGain(50), 0.25);
+  assert.equal(focusSoundGain(100), 1);
+  assert.equal(focusSoundGain(-5), 0);
+  assert.equal(focusSoundGain(150), 1);
+});
+
+test('isFocusSoundId accepts only the built-in sounds', () => {
+  assert.ok(isFocusSoundId('rain'));
+  assert.ok(!isFocusSoundId('drone'));
+  assert.ok(!isFocusSoundId(null));
+});

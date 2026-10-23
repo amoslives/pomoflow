@@ -28,6 +28,8 @@ import {
   YouTubeVideoMetadata,
   RepeatMode,
 } from '../utils/youtube';
+import { FOCUS_SOUNDS, isFocusSoundId, type FocusSoundId } from '../utils/focusSounds';
+import { pauseFocusSound, resumeFocusSound, setFocusSoundVolume, startFocusSound, unloadFocusSound } from '../utils/audio';
 
 // Declare YT for window
 declare global {
@@ -67,6 +69,8 @@ interface LoadSourceOptions {
 }
 
 const PLAYLIST_METADATA_BATCH_SIZE = 25;
+// The built-in focus sounds list as one more playlist in the queue
+const FOCUS_PLAYLIST_ID = 'focus-sounds';
 
 function fallbackTrackTitle(sourceType: TrackItem['sourceType']): string {
   return sourceType === 'youtube-playlist' ? 'Saved YouTube playlist' : 'Saved YouTube track';
@@ -164,6 +168,13 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
   const [seekPreview, setSeekPreview] = useState(restoredPlayback?.position || 0);
   // YouTube waits for a tap inside the video; even the compact player shows the video then
   const [isTapNeeded, setIsTapNeeded] = useState(false);
+  // A focus sound, while chosen, is the source instead of the queue's track. YouTube keeps its
+  // track and position to return to.
+  const [focusSoundId, setFocusSoundId] = useState<FocusSoundId | null>(() => {
+    const saved = localStorage.getItem('pomodoro_focus_sound');
+    return isFocusSoundId(saved) ? saved : null;
+  });
+  const [isFocusPlaying, setIsFocusPlaying] = useState(false);
 
   const ytPlayerRef = useRef<any>(null);
   const timerIntervalRef = useRef<number | null>(null);
@@ -185,6 +196,8 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
   showVideoRef.current = showVideo && !compact;
   const isPlayingRef = useRef(isPlaying);
   isPlayingRef.current = isPlaying;
+  const focusSoundIdRef = useRef(focusSoundId);
+  focusSoundIdRef.current = focusSoundId;
   const isLiveRef = useRef(isLive);
   isLiveRef.current = isLive;
   const nativePlaylistIndexRef = useRef(nativePlaylistIndex);
@@ -200,10 +213,14 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
   // The video was shown only so its play button could be tapped; hide it once music starts
   const videoShownForTapRef = useRef(false);
   const transportRef = useRef<HTMLDivElement>(null);
+  const focusPlaylistRef = useRef<HTMLDivElement>(null);
 
   const currentTrack: TrackItem | undefined = queue[currentTrackIndex];
-  // There is no video to show until YouTube has loaded a track
-  const hasVideo = youtubeEnabled && Boolean(currentTrack);
+  const focusSound = FOCUS_SOUNDS.find((sound) => sound.id === focusSoundId);
+  // Whether the chosen source, YouTube or a focus sound, is playing
+  const playing = focusSound ? isFocusPlaying : isPlaying;
+  // There is no video to show until YouTube has loaded a track, or while a focus sound is chosen
+  const hasVideo = youtubeEnabled && Boolean(currentTrack) && !focusSound;
   const isVideoShown = showVideo && hasVideo && (!compact || isTapNeeded);
 
   useEffect(() => {
@@ -228,6 +245,31 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
       playlistIndex: nativePlaylistIndex,
     } satisfies SavedPlayback));
   }, [currentTrack, currentTime, nativePlaylistIndex, isLive]);
+
+  useEffect(() => {
+    if (focusSoundId) localStorage.setItem('pomodoro_focus_sound', focusSoundId);
+    else localStorage.removeItem('pomodoro_focus_sound');
+  }, [focusSoundId]);
+
+  // Browsers can suspend audio while the app is in the background; carry on once it is back
+  useEffect(() => {
+    if (!isFocusPlaying) return;
+    const resume = () => { if (document.visibilityState === 'visible') resumeFocusSound(); };
+    document.addEventListener('visibilitychange', resume);
+    window.addEventListener('pointerdown', resume, true);
+    return () => {
+      document.removeEventListener('visibilitychange', resume);
+      window.removeEventListener('pointerdown', resume, true);
+    };
+  }, [isFocusPlaying]);
+
+  useEffect(() => () => unloadFocusSound(), []);
+
+  // The focus sounds come after the queue, which can be long; bring them into view when opened
+  const isFocusExpanded = expandedPlaylistId === FOCUS_PLAYLIST_ID;
+  useEffect(() => {
+    if (isFocusExpanded) focusPlaylistRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [isFocusExpanded]);
 
   // Load YouTube Iframe API once
   useEffect(() => {
@@ -331,6 +373,7 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
   // Update volume
   useEffect(() => {
     const effectiveVol = isMuted ? 0 : volume;
+    setFocusSoundVolume(effectiveVol);
     if (ytPlayerRef.current && typeof ytPlayerRef.current.setVolume === 'function') {
       try {
         ytPlayerRef.current.setVolume(effectiveVol);
@@ -409,6 +452,14 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
 
   // Play next track
   const handleNextTrack = useCallback(() => {
+    if (focusSound) {
+      const index = FOCUS_SOUNDS.indexOf(focusSound);
+      const others = FOCUS_SOUNDS.map((_, i) => i).filter((i) => i !== index);
+      const nextIndex = getNextTrackIndex(index, FOCUS_SOUNDS.length, isShuffle, repeatMode, others);
+      if (nextIndex < 0) handlePauseFocusSound();
+      else handlePlayFocusSound(FOCUS_SOUNDS[nextIndex]!.id);
+      return;
+    }
     repeatingPlaylistIndexRef.current = null;
     resumeLateStopUntilRef.current = 0;
     if (queue.length === 0) return;
@@ -447,7 +498,7 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
     if (isShuffle && unplayed.length === 0) setPlayedIds(currentTrack ? [currentTrack.id] : []);
     setPlaybackError('');
     playTrackAtIndex(nextIndex);
-  }, [queue, currentTrackIndex, isShuffle, repeatMode, playedIds, currentTrack]);
+  }, [queue, currentTrackIndex, isShuffle, repeatMode, playedIds, currentTrack, focusSound]);
 
   useEffect(() => {
     handleNextTrackRef.current = handleNextTrack;
@@ -455,6 +506,10 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
 
   // Play previous track
   const handlePrevTrack = useCallback(() => {
+    if (focusSound) {
+      handlePlayFocusSound(FOCUS_SOUNDS[getPrevTrackIndex(FOCUS_SOUNDS.indexOf(focusSound), FOCUS_SOUNDS.length, repeatMode)]!.id);
+      return;
+    }
     repeatingPlaylistIndexRef.current = null;
     resumeLateStopUntilRef.current = 0;
     if (queue.length === 0) return;
@@ -468,12 +523,13 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
 
     const prevIndex = getPrevTrackIndex(currentTrackIndex, queue.length, repeatMode);
     playTrackAtIndex(prevIndex);
-  }, [queue, currentTrackIndex, repeatMode, currentTrack]);
+  }, [queue, currentTrackIndex, repeatMode, currentTrack, focusSound]);
 
   // Play track at specified index
   const playTrackAtIndex = (index: number, queueOverride?: TrackItem[], autoplay = true) => {
     const effectiveQueue = queueOverride ?? queue;
     if (index < 0 || index >= effectiveQueue.length) return;
+    if (autoplay) leaveFocusSound();
     setCurrentTrackIndex(index);
     const track = effectiveQueue[index];
     if (!track) return;
@@ -579,6 +635,8 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
         setIsPlaying(true);
         setPlaybackError('');
         setIsTapNeeded(false);
+        // YouTube started some other way, such as a media key; only one source plays at a time
+        if (focusSoundIdRef.current) leaveFocusSound();
         if (videoShownForTapRef.current) {
           videoShownForTapRef.current = false;
           setShowVideo(false);
@@ -783,6 +841,11 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
 
   // Toggle Play / Pause
   const handleTogglePlayPause = () => {
+    if (focusSound) {
+      if (isFocusPlaying) handlePauseFocusSound();
+      else handlePlayFocusSound(focusSound.id);
+      return;
+    }
     setYoutubeEnabled(true);
     if (!currentTrack) {
       if (queue.length > 0) {
@@ -816,7 +879,7 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
   };
 
   // Stop Playback
-  const handleStop = () => {
+  const stopYouTube = () => {
     resumeLateStopUntilRef.current = 0;
     if (ytPlayerRef.current && typeof ytPlayerRef.current.stopVideo === 'function') {
       try {
@@ -828,6 +891,52 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
     setCurrentTime(0);
     setSeekPreview(0);
     resumePositionRef.current = 0;
+  };
+
+  // Stopping a focus sound returns the player to the queue
+  const handleStop = () => {
+    if (focusSound) leaveFocusSound();
+    else stopYouTube();
+  };
+
+  // Pause YouTube for a focus sound. Its track and position stay, to come back to.
+  const pauseYouTube = () => {
+    resumeLateStopUntilRef.current = 0;
+    // A source still loading must not start over the focus sound
+    for (const source of [pendingTrackRef, activeSourceRef]) {
+      if (source.current) source.current = { ...source.current, options: { ...source.current.options, autoplay: false } };
+    }
+    const playerState = ytPlayerRef.current?.getPlayerState?.();
+    if (isPlaying || playerState === 1 || playerState === 3) {
+      try { ytPlayerRef.current?.pauseVideo?.(); } catch {}
+    }
+    lastPlayerStopRef.current = { at: 0, wasPlaying: false };
+    setIsPlaying(false);
+    setIsTapNeeded(false);
+    if (videoShownForTapRef.current) {
+      videoShownForTapRef.current = false;
+      setShowVideo(false);
+    }
+  };
+
+  const handlePlayFocusSound = (id: FocusSoundId) => {
+    pauseYouTube();
+    setFocusSoundId(id);
+    const started = startFocusSound(id);
+    setIsFocusPlaying(started);
+    setPlaybackError(started ? '' : 'This browser cannot play focus sounds.');
+  };
+
+  const handlePauseFocusSound = () => {
+    pauseFocusSound();
+    setIsFocusPlaying(false);
+  };
+
+  // Back to the queue's track, which stays paused until played
+  const leaveFocusSound = () => {
+    unloadFocusSound();
+    setIsFocusPlaying(false);
+    setFocusSoundId(null);
   };
 
   // Toggle Shuffle
@@ -914,7 +1023,7 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
     setPlayedIds(previous => previous.filter(played => played !== id));
     failedTrackIdsRef.current.delete(id);
     if (index === currentTrackIndex) {
-      handleStop();
+      stopYouTube();
       activeSourceRef.current = null;
       pendingTrackRef.current = null;
       setLiveTitle('');
@@ -947,6 +1056,7 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
     repeatingPlaylistIndexRef.current = null;
     resumeLateStopUntilRef.current = 0;
     if (!ytPlayerRef.current || typeof ytPlayerRef.current.playVideoAt !== 'function') return;
+    leaveFocusSound();
     try {
       ytPlayerRef.current.playVideoAt(index);
       setNativePlaylistIndex(index);
@@ -955,7 +1065,7 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
     } catch {}
   };
 
-  const displayTitle = liveTitle || currentTrack?.title || 'No track loaded';
+  const displayTitle = focusSound?.title || liveTitle || currentTrack?.title || 'No track loaded';
   const displayedTime = isSeeking ? seekPreview : currentTime;
   const seekPercent = duration > 0 ? Math.min(100, Math.max(0, (displayedTime / duration) * 100)) : 0;
 
@@ -980,11 +1090,11 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
       <button
         type="button"
         onClick={handleTogglePlayPause}
-        aria-label={isPlaying ? 'Pause music' : 'Play music'}
-        title={isPlaying ? 'Pause' : 'Play'}
-        className={`btn btn-icon !px-4 ${isPlaying ? 'is-on' : ''}`}
+        aria-label={playing ? 'Pause music' : 'Play music'}
+        title={playing ? 'Pause' : 'Play'}
+        className={`btn btn-icon !px-4 ${playing ? 'is-on' : ''}`}
       >
-        {isPlaying ? <Pause className="fill-current" /> : <Play className="fill-current" />}
+        {playing ? <Pause className="fill-current" /> : <Play className="fill-current" />}
       </button>
       <button type="button" onClick={handleStop} aria-label="Stop playback" title="Stop playback" className="btn btn-icon">
         <Square className="fill-current" />
@@ -996,7 +1106,7 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
   );
 
   return (
-    <section className="window w-full mt-5 font-pixel select-none" aria-label="Music player" hidden={compact && !currentTrack}>
+    <section className="window w-full mt-5 font-pixel select-none" aria-label="Music player" hidden={compact && !currentTrack && !focusSound}>
       <div className="titlebar">
         <span className="titlebar-box left" aria-hidden="true" />
         <span className="titlebar-title">Jukebox</span>
@@ -1054,127 +1164,183 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
               </button>
             </div>
 
-            {queue.length === 0 ? (
+            {queue.length === 0 && (
               <p className="dim text-lg py-2 text-center">The queue is empty. Press Load to add a video or playlist.</p>
-            ) : (
-              <div className="max-h-80 overflow-y-auto">
-                {queue.map((track, idx) => {
-                  const isPlaylist = track.sourceType === 'youtube-playlist';
-                  const isExpanded = isPlaylist && expandedPlaylistId === track.id;
-                  const isCurrent = idx === currentTrackIndex;
+            )}
+            <div className="max-h-80 overflow-y-auto">
+              {queue.map((track, idx) => {
+                const isPlaylist = track.sourceType === 'youtube-playlist';
+                const isExpanded = isPlaylist && expandedPlaylistId === track.id;
+                // The loaded track is the current one unless a focus sound is chosen
+                const isLoaded = idx === currentTrackIndex;
+                const isCurrent = isLoaded && !focusSound;
 
-                  return (
-                    <div key={track.id} className={`list-row flex-col !items-stretch !gap-0 !p-0 ${isCurrent ? 'is-selected' : ''}`}>
-                      <div className="flex items-center gap-2 px-2 py-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (isPlaylist) {
-                              setExpandedPlaylistId(isExpanded ? null : track.id);
-                            } else {
-                              playTrackAtIndex(idx);
-                            }
-                          }}
-                          aria-label={isPlaylist ? `${isExpanded ? 'Collapse' : 'Expand'} ${track.title}` : `Play ${track.title}`}
-                          aria-expanded={isPlaylist ? isExpanded : undefined}
-                          className="min-w-0 flex-1 flex items-center gap-2 text-left cursor-pointer text-lg"
-                        >
-                          <span className="w-5 flex-shrink-0 text-center font-data text-lg">
-                            {isPlaylist
-                              ? (isExpanded ? <ChevronDown className="w-4 h-4" strokeWidth={3} /> : <ChevronRight className="w-4 h-4" strokeWidth={3} />)
-                              : (isCurrent && isPlaying ? '>' : `${idx + 1}`)}
-                          </span>
-                          <span className="truncate">{track.title}</span>
-                          {isPlaylist && <span className="badge !text-xs flex-shrink-0">Playlist</span>}
-                        </button>
+                return (
+                  <div key={track.id} className={`list-row flex-col !items-stretch !gap-0 !p-0 ${isCurrent ? 'is-selected' : ''}`}>
+                    <div className="flex items-center gap-2 px-2 py-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isPlaylist) {
+                            setExpandedPlaylistId(isExpanded ? null : track.id);
+                          } else {
+                            playTrackAtIndex(idx);
+                          }
+                        }}
+                        aria-label={isPlaylist ? `${isExpanded ? 'Collapse' : 'Expand'} ${track.title}` : `Play ${track.title}`}
+                        aria-expanded={isPlaylist ? isExpanded : undefined}
+                        className="min-w-0 flex-1 flex items-center gap-2 text-left cursor-pointer text-lg"
+                      >
+                        <span className="w-5 flex-shrink-0 text-center font-data text-lg">
+                          {isPlaylist
+                            ? (isExpanded ? <ChevronDown className="w-4 h-4" strokeWidth={3} /> : <ChevronRight className="w-4 h-4" strokeWidth={3} />)
+                            : (isCurrent && isPlaying ? '>' : `${idx + 1}`)}
+                        </span>
+                        <span className="truncate">{track.title}</span>
+                        {isPlaylist && <span className="badge !text-xs flex-shrink-0">Playlist</span>}
+                      </button>
 
-                        <div className="flex items-center gap-1">
-                          {isPlaylist && (
-                            <button
-                              type="button"
-                              onClick={() => playTrackAtIndex(idx)}
-                              aria-label={`Play ${track.title}`}
-                              title="Play playlist from the beginning"
-                              className="btn btn-icon btn-ghost !text-current"
-                            >
-                              <Play className="fill-current" />
-                            </button>
-                          )}
+                      <div className="flex items-center gap-1">
+                        {isPlaylist && (
                           <button
                             type="button"
-                            onClick={(e) => handleRemoveTrack(track.id, idx, e)}
-                            aria-label={`Remove ${track.title}`}
+                            onClick={() => playTrackAtIndex(idx)}
+                            aria-label={`Play ${track.title}`}
+                            title="Play playlist from the beginning"
                             className="btn btn-icon btn-ghost !text-current"
                           >
-                            <Trash2 strokeWidth={2.5} />
+                            <Play className="fill-current" />
                           </button>
-                        </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => handleRemoveTrack(track.id, idx, e)}
+                          aria-label={`Remove ${track.title}`}
+                          className="btn btn-icon btn-ghost !text-current"
+                        >
+                          <Trash2 strokeWidth={2.5} />
+                        </button>
                       </div>
-
-                      {isExpanded && (
-                        <div className="border-t-2 border-dotted border-current px-2 py-1.5">
-                          {!isCurrent ? (
-                            <p className="py-1 text-base opacity-80">Play this playlist to load its songs.</p>
-                          ) : nativePlaylistTracks.length === 0 ? (
-                            <p className="py-1 text-base opacity-80">Loading playlist songs...</p>
-                          ) : (
-                            <>
-                              <div>
-                                {nativePlaylistTracks.map((playlistTrack, playlistIndex) => (
-                                  <button
-                                    key={`${playlistTrack.videoId}-${playlistIndex}`}
-                                    type="button"
-                                    onClick={() => handlePlayNativePlaylistTrack(playlistIndex)}
-                                    aria-label={`Play playlist track ${playlistIndex + 1}: ${playlistTrack.title}`}
-                                    className={`w-full flex items-center gap-2 px-1 py-1 text-left cursor-pointer border-2 ${
-                                      playlistIndex === nativePlaylistIndex ? 'border-current' : 'border-transparent hover:border-current'
-                                    }`}
-                                  >
-                                    <span className="w-6 flex-shrink-0 text-center font-data text-lg">
-                                      {playlistIndex === nativePlaylistIndex && isPlaying ? '>' : playlistIndex + 1}
-                                    </span>
-                                    <img
-                                      src={playlistTrack.thumbnailUrl}
-                                      alt=""
-                                      loading="lazy"
-                                      className="w-12 h-7 object-cover flex-shrink-0 border border-current grayscale contrast-150"
-                                    />
-                                    <span className="min-w-0">
-                                      <span className="block truncate text-base">{playlistTrack.title}</span>
-                                      <span className="block truncate text-sm opacity-70">{playlistTrack.author}</span>
-                                    </span>
-                                  </button>
-                                ))}
-                              </div>
-
-                              {nativePlaylistTracks.some((trackItem) => !trackItem.metadataLoaded) && (
-                                <button
-                                  type="button"
-                                  onClick={() => void hydrateNativePlaylistMetadata(nativePlaylistTracks.map((trackItem) => trackItem.videoId))}
-                                  disabled={isPlaylistMetadataLoading}
-                                  className="btn btn-sm w-full mt-2 !text-current !bg-transparent !border-current"
-                                >
-                                  {isPlaylistMetadataLoading ? 'Loading titles...' : 'Load more titles'}
-                                </button>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      )}
                     </div>
-                  );
-                })}
+
+                    {isExpanded && (
+                      <div className="border-t-2 border-dotted border-current px-2 py-1.5">
+                        {!isLoaded ? (
+                          <p className="py-1 text-base opacity-80">Play this playlist to load its songs.</p>
+                        ) : nativePlaylistTracks.length === 0 ? (
+                          <p className="py-1 text-base opacity-80">Loading playlist songs...</p>
+                        ) : (
+                          <>
+                            <div>
+                              {nativePlaylistTracks.map((playlistTrack, playlistIndex) => (
+                                <button
+                                  key={`${playlistTrack.videoId}-${playlistIndex}`}
+                                  type="button"
+                                  onClick={() => handlePlayNativePlaylistTrack(playlistIndex)}
+                                  aria-label={`Play playlist track ${playlistIndex + 1}: ${playlistTrack.title}`}
+                                  className={`w-full flex items-center gap-2 px-1 py-1 text-left cursor-pointer border-2 ${
+                                    playlistIndex === nativePlaylistIndex ? 'border-current' : 'border-transparent hover:border-current'
+                                  }`}
+                                >
+                                  <span className="w-6 flex-shrink-0 text-center font-data text-lg">
+                                    {playlistIndex === nativePlaylistIndex && isPlaying ? '>' : playlistIndex + 1}
+                                  </span>
+                                  <img
+                                    src={playlistTrack.thumbnailUrl}
+                                    alt=""
+                                    loading="lazy"
+                                    className="w-12 h-7 object-cover flex-shrink-0 border border-current grayscale contrast-150"
+                                  />
+                                  <span className="min-w-0">
+                                    <span className="block truncate text-base">{playlistTrack.title}</span>
+                                    <span className="block truncate text-sm opacity-70">{playlistTrack.author}</span>
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+
+                            {nativePlaylistTracks.some((trackItem) => !trackItem.metadataLoaded) && (
+                              <button
+                                type="button"
+                                onClick={() => void hydrateNativePlaylistMetadata(nativePlaylistTracks.map((trackItem) => trackItem.videoId))}
+                                disabled={isPlaylistMetadataLoading}
+                                className="btn btn-sm w-full mt-2 !text-current !bg-transparent !border-current"
+                              >
+                                {isPlaylistMetadataLoading ? 'Loading titles...' : 'Load more titles'}
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Built-in focus sounds, made on this device */}
+              <div ref={focusPlaylistRef} className={`list-row flex-col !items-stretch !gap-0 !p-0 ${focusSound ? 'is-selected' : ''}`}>
+                <div className="flex items-center gap-2 px-2 py-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedPlaylistId(isFocusExpanded ? null : FOCUS_PLAYLIST_ID)}
+                    aria-label={`${isFocusExpanded ? 'Collapse' : 'Expand'} Focus sounds`}
+                    aria-expanded={isFocusExpanded}
+                    className="min-w-0 flex-1 flex items-center gap-2 text-left cursor-pointer text-lg"
+                  >
+                    <span className="w-5 flex-shrink-0 text-center font-data text-lg">
+                      {isFocusExpanded ? <ChevronDown className="w-4 h-4" strokeWidth={3} /> : <ChevronRight className="w-4 h-4" strokeWidth={3} />}
+                    </span>
+                    <span className="truncate">Focus sounds</span>
+                    <span className="badge !text-xs flex-shrink-0">Playlist</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExpandedPlaylistId(FOCUS_PLAYLIST_ID);
+                      handlePlayFocusSound(FOCUS_SOUNDS[0].id);
+                    }}
+                    aria-label="Play Focus sounds"
+                    title="Play playlist from the beginning"
+                    className="btn btn-icon btn-ghost !text-current"
+                  >
+                    <Play className="fill-current" />
+                  </button>
+                </div>
+
+                {isFocusExpanded && (
+                  <div className="border-t-2 border-dotted border-current px-2 py-1.5">
+                    {FOCUS_SOUNDS.map((sound, index) => (
+                      <button
+                        key={sound.id}
+                        type="button"
+                        onClick={() => handlePlayFocusSound(sound.id)}
+                        aria-label={`Play focus sound ${index + 1}: ${sound.title}`}
+                        className={`w-full flex items-center gap-2 px-1 py-1 text-left cursor-pointer border-2 ${
+                          sound.id === focusSoundId ? 'border-current' : 'border-transparent hover:border-current'
+                        }`}
+                      >
+                        <span className="w-6 flex-shrink-0 text-center font-data text-lg">
+                          {sound.id === focusSoundId && isFocusPlaying ? '>' : index + 1}
+                        </span>
+                        <span className="min-w-0 flex items-baseline gap-2">
+                          <span className="flex-shrink-0 text-base">{sound.title}</span>
+                          <span className="truncate text-sm opacity-70">{sound.description}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
         )}
 
         {/* Now playing, with Load beside it, or the play controls in compact mode */}
         <div className="flex items-center gap-2">
           <div className="field field-sm font-data text-lg truncate !bg-transparent flex-1" aria-live="polite">
-            {currentTrack ? (
+            {currentTrack || focusSound ? (
               <>
-                <span className="font-pixel text-sm mr-2">{isPlaying ? 'Playing' : 'Loaded'}</span>
+                <span className="font-pixel text-sm mr-2">{playing ? 'Playing' : 'Loaded'}</span>
                 <span>{displayTitle}</span>
               </>
             ) : (
@@ -1202,14 +1368,14 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
         {!compact && <>
           {/* Seek */}
           <div className="flex items-center gap-3 mt-2">
-            <span className="font-data text-lg w-12 text-right">{isLive ? 'LIVE' : formatTime(displayedTime)}</span>
+            <span className="font-data text-lg w-12 text-right">{focusSound ? '--:--' : isLive ? 'LIVE' : formatTime(displayedTime)}</span>
             <input
               type="range"
               name="seek"
               min="0"
               max={duration || 100}
               step="1"
-              value={isLive ? 0 : displayedTime}
+              value={isLive || focusSound ? 0 : displayedTime}
               onPointerDown={() => {
                 setSeekPreview(currentTime);
                 setIsSeeking(true);
@@ -1222,13 +1388,14 @@ export function AudioPlayer({ compact = false }: AudioPlayerProps) {
               onPointerUp={(e) => commitSeek(Number(e.currentTarget.value))}
               onKeyUp={(e) => commitSeek(Number(e.currentTarget.value))}
               onBlur={(e) => isSeeking && commitSeek(Number(e.currentTarget.value))}
-              disabled={!currentTrack || isLive || duration <= 0}
+              disabled={!currentTrack || isLive || duration <= 0 || Boolean(focusSound)}
               className="slider slider-seek slider-thin flex-1"
-              style={{ '--seek-progress': `${seekPercent}%` } as React.CSSProperties}
-              aria-label={isLive ? 'Live stream progress is not seekable' : 'Seek through current track'}
-              aria-valuetext={isLive ? 'Live' : `${formatTime(displayedTime)} of ${formatTime(duration)}`}
+              style={{ '--seek-progress': `${focusSound ? 0 : seekPercent}%` } as React.CSSProperties}
+              aria-label={focusSound ? 'Focus sounds play without end and are not seekable'
+                : isLive ? 'Live stream progress is not seekable' : 'Seek through current track'}
+              aria-valuetext={focusSound ? 'No end' : isLive ? 'Live' : `${formatTime(displayedTime)} of ${formatTime(duration)}`}
             />
-            <span className="font-data text-lg w-12">{isLive ? 'LIVE' : formatTime(duration)}</span>
+            <span className="font-data text-lg w-12">{focusSound ? '--:--' : isLive ? 'LIVE' : formatTime(duration)}</span>
           </div>
 
           {/* Transport */}

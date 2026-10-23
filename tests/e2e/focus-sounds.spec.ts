@@ -91,7 +91,9 @@ test('focus sounds play from the queue without contacting YouTube', async ({ pag
   await expect(page.getByText('Current Playlist & Queue (0)', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Expand Focus sounds' }).click();
   const sounds = page.getByRole('button', { name: /^Play focus sound/ });
-  await expect(sounds).toHaveText([/Rain/, /Ocean waves/, /White noise/, /Pink noise/, /Brown noise/]);
+  await expect(sounds).toHaveText([
+    /Rain/, /Ocean waves/, /Stream/, /Wind/, /Fireplace/, /Fan/, /White noise/, /Pink noise/, /Brown noise/,
+  ]);
 
   await page.getByRole('button', { name: 'Play focus sound 1: Rain' }).click();
   await expect(nowPlaying(page)).toHaveText('PlayingRain');
@@ -140,7 +142,7 @@ test('a chosen focus sound comes back after a refresh without playing, and Stop 
 test('volume and mute apply to focus sounds', async ({ page }) => {
   await page.goto('/');
   await openFocusSounds(page);
-  await page.getByRole('button', { name: 'Play focus sound 3: White noise' }).click();
+  await page.getByRole('button', { name: 'Play focus sound 6: Fan' }).click();
   await page.getByRole('button', { name: 'Mute' }).click();
   await page.getByRole('button', { name: 'Unmute' }).click();
   await page.getByLabel('Volume control').fill('100');
@@ -216,12 +218,12 @@ test('a focus sound carries on when the app returns after the browser suspended 
 test('the Stats tab shows the slim player for a focus sound, and Stop hides it', async ({ page }) => {
   await page.goto('/');
   await openFocusSounds(page);
-  await page.getByRole('button', { name: 'Play focus sound 4: Pink noise' }).click();
+  await page.getByRole('button', { name: 'Play focus sound 5: Fireplace' }).click();
   await page.getByRole('button', { name: 'Stats', exact: true }).click();
-  await expect(nowPlaying(page)).toHaveText('PlayingPink noise');
+  await expect(nowPlaying(page)).toHaveText('PlayingFireplace');
   await expect(player(page).getByRole('slider')).toHaveCount(0);
   await player(page).getByRole('button', { name: 'Pause music', exact: true }).click();
-  await expect(nowPlaying(page)).toHaveText('LoadedPink noise');
+  await expect(nowPlaying(page)).toHaveText('LoadedFireplace');
   await player(page).getByRole('button', { name: 'Stop playback' }).click();
   await expect(player(page)).toBeHidden();
 });

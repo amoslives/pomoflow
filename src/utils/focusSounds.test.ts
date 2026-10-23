@@ -46,6 +46,13 @@ function secondLevels(samples: Float32Array) {
   return Array.from({ length: LOOP_SECONDS }, (_, second) => rms(samples, second * RATE, (second + 1) * RATE));
 }
 
+const crest = (id: FocusSoundId) => {
+  const samples = render(id)[0]!;
+  let peak = 0;
+  for (const sample of samples) peak = Math.max(peak, Math.abs(sample));
+  return peak / rms(samples);
+};
+
 test('every focus sound is a stereo loop of the full length, within range and at a comfortable level', () => {
   for (const { id } of FOCUS_SOUNDS) {
     const channels = render(id);
@@ -63,10 +70,14 @@ test('every focus sound is a stereo loop of the full length, within range and at
 test('the end of each loop runs into its start without a jump', () => {
   for (const { id } of FOCUS_SOUNDS) {
     for (const samples of render(id)) {
-      const seam = Math.abs(samples[samples.length - 1]! - samples[0]!);
-      // Brown noise and the surf move slowly, so a cut would stand out against their usual step
-      const limit = id === 'brown' || id === 'ocean' ? 4 * meanStep(samples) : 0.95;
-      assert.ok(seam <= limit, `${id} seam ${seam} over ${limit}`);
+      const last = samples.length - 1;
+      const seam = Math.abs(samples[last]! - samples[0]!);
+      // The largest step among the samples either side of the seam
+      let nearby = 0;
+      for (let i = 1; i < 100; i++) {
+        nearby = Math.max(nearby, Math.abs(samples[i]! - samples[i - 1]!), Math.abs(samples[last - i + 1]! - samples[last - i]!));
+      }
+      assert.ok(seam <= 1.5 * nearby, `${id} seam ${seam}, nearby steps up to ${nearby}`);
     }
   }
 });
@@ -77,13 +88,35 @@ test('brown noise is darker than pink, and pink darker than white', () => {
   assert.ok(brightness('pink') < brightness('white'));
 });
 
-test('the ocean swells and falls while the noises and rain stay steady', () => {
+test('the ocean and the wind swell and fall while the other sounds stay steady', () => {
+  // Both ears together, so the fan turning from side to side does not count as a swell
   const swing = (id: FocusSoundId) => {
-    const levels = secondLevels(render(id)[0]!);
+    const [left, right] = render(id).map(secondLevels);
+    const levels = left!.map((level, second) => Math.hypot(level, right![second]!));
     return Math.max(...levels) / Math.min(...levels);
   };
-  assert.ok(swing('ocean') > 3, `ocean ${swing('ocean')}`);
-  for (const id of ['rain', 'white', 'pink', 'brown'] as const) assert.ok(swing(id) < 2, `${id} ${swing(id)}`);
+  for (const id of ['ocean', 'wind'] as const) assert.ok(swing(id) > 2.5, `${id} ${swing(id)}`);
+  for (const id of ['rain', 'stream', 'fireplace', 'fan', 'white', 'pink', 'brown'] as const) {
+    assert.ok(swing(id) < 2, `${id} ${swing(id)}`);
+  }
+});
+
+test('the fan turns from side to side, louder in one ear as it fades in the other', () => {
+  const [left, right] = render('fan').map(secondLevels);
+  const mean = (levels: number[]) => levels.reduce((sum, level) => sum + level, 0) / levels.length;
+  const leftMean = mean(left!);
+  const rightMean = mean(right!);
+  let together = 0, leftSpread = 0, rightSpread = 0;
+  left!.forEach((level, second) => {
+    together += (level - leftMean) * (right![second]! - rightMean);
+    leftSpread += (level - leftMean) ** 2;
+    rightSpread += (right![second]! - rightMean) ** 2;
+  });
+  assert.ok(together / Math.sqrt(leftSpread * rightSpread) < -0.8);
+});
+
+test('the fireplace crackles: sharp peaks stand far above its level, unlike plain noise', () => {
+  assert.ok(crest('fireplace') > 1.5 * crest('pink'), `fireplace ${crest('fireplace')}, pink ${crest('pink')}`);
 });
 
 test('waves repeat with the loop and each starts and ends calm', () => {

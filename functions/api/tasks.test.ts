@@ -113,6 +113,14 @@ test('rate limits are shared across independent request contexts and expire', as
   assert.equal(sqlite.prepare('SELECT client_hash FROM task_rate_limits').get()?.client_hash, await hashCredential('unknown'));
 });
 
+test('the rate limit can be set per environment', async t => {
+  const { db, sqlite } = localDatabase(':memory:'); t.after(() => sqlite.close());
+  const limited = () => handleTaskRequest({ ...context(request(), db), env: { TASKS_DB: db, TASKS_RATE_LIMIT: '2' } });
+  assert.equal((await limited()).status, 200);
+  assert.equal((await limited()).status, 200);
+  assert.equal((await limited()).status, 429);
+});
+
 test('more than 500 tasks sync, and deleting them releases document space', async t => {
   const { db, sqlite } = localDatabase(':memory:'); t.after(() => sqlite.close());
   const many = Array.from({ length: 600 }, (_, i) => ({ ...task, id: `task-${i}`, title: '漢'.repeat(500) }));

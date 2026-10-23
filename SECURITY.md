@@ -11,7 +11,7 @@ Use [GitHub private vulnerability reporting](https://github.com/amoslives/pomofl
 - Affected URLs, browsers, or commits
 - Suggested mitigations, if known
 
-Do not include real pairing credentials, private tasks, API tokens, or other secrets. Create an isolated test room if a reproduction requires task sync.
+Do not include real pairing credentials, private tasks or stats, API tokens, or other secrets. Create an isolated test room if a reproduction requires sync.
 
 ## Supported version
 

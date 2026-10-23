@@ -37,7 +37,7 @@ app.all('/api/tasks', express.raw({ type: () => true, limit: '2100kb' }), async 
     method: req.method, headers,
     ...(req.method === 'GET' || req.method === 'HEAD' ? {} : { body: req.body?.length ? new Uint8Array(req.body) : undefined }),
   });
-  const response = await handleTaskRequest({ request, env: { TASKS_DB: db }, params: {} });
+  const response = await handleTaskRequest({ request, env: { TASKS_DB: db, TASKS_RATE_LIMIT: process.env.TASKS_RATE_LIMIT }, params: {} });
   response.headers.forEach((value, name) => res.setHeader(name, value));
   res.status(response.status).send(await response.text());
 });

@@ -1,6 +1,8 @@
 import { Play, Pause, RotateCcw, SkipForward, X } from 'lucide-react';
-import { formatTime, calculateProgress } from '../utils/timer';
-import { SESSIONS_PER_LONG_BREAK } from '../hooks/usePomodoro';
+import { formatTime, formatLateness, calculateProgress } from '../utils/timer';
+import { SESSIONS_PER_LONG_BREAK, type LateAlert, type NotificationStatus } from '../hooks/usePomodoro';
+
+const INTERVAL_NAMES = { work: 'work session', break: 'break', longBreak: 'long break' } as const;
 
 interface TimerCircleProps {
   mode: 'work' | 'break';
@@ -22,6 +24,10 @@ interface TimerCircleProps {
   // null when the browser cannot keep the screen awake
   keepAwake: boolean | null;
   onChangeKeepAwake: (keepAwake: boolean) => void;
+  // Why the browser cannot show alerts; null when it can, or before Start has asked
+  notificationsOff: Exclude<NotificationStatus, 'granted'> | null;
+  onAllowNotifications: () => void;
+  lateAlert: LateAlert | null;
 }
 
 export function TimerCircle({
@@ -42,6 +48,9 @@ export function TimerCircle({
   onChangeLongBreakMinutes,
   keepAwake,
   onChangeKeepAwake,
+  notificationsOff,
+  onAllowNotifications,
+  lateAlert,
 }: TimerCircleProps) {
   const elapsedPercent = calculateProgress(timeLeft, totalDuration);
   const sessionsDone = sessionsTowardLongBreak ?? SESSIONS_PER_LONG_BREAK;
@@ -97,6 +106,27 @@ export function TimerCircle({
             <SkipForward className="w-5 h-5 fill-current" />
             <span>Start Work</span>
           </button>
+        )}
+      </div>
+
+      {/* Why an alert did not or cannot arrive */}
+      <div role="status" className="w-full max-w-md text-lg">
+        {notificationsOff === 'default' && (
+          <p className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span>Notifications are off. Allow them here, or in the browser's site settings if no prompt appears.</span>
+            <button type="button" onClick={onAllowNotifications} className="btn btn-sm">Allow notifications</button>
+          </p>
+        )}
+        {notificationsOff === 'denied' && (
+          <p className="mt-4">Notifications are blocked for this site. Turn them on in the browser's site settings.</p>
+        )}
+        {notificationsOff === 'unsupported' && (
+          <p className="mt-4">This browser can't show notifications. On iPhone or iPad, add Pomoflow to the Home Screen and open it from there.</p>
+        )}
+        {lateAlert && (
+          <p className="mt-4">
+            This tab wasn't running when the {INTERVAL_NAMES[lateAlert.interval]} ended, so the alert came {formatLateness(lateAlert.seconds)} late.
+          </p>
         )}
       </div>
 

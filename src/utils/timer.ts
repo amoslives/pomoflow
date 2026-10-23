@@ -11,6 +11,17 @@ export function formatTime(totalSeconds: number): string {
   return `${mm}:${ss}`;
 }
 
+/**
+ * How late an alert came, in whole minutes, with hours once it reaches an hour
+ */
+export function formatLateness(totalSeconds: number): string {
+  const minutes = Math.max(1, Math.round(totalSeconds / 60));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} h ${rest} min` : `${hours} h`;
+}
+
 export function calculateProgress(remainingSeconds: number, totalSeconds: number): number {
   if (totalSeconds <= 0) return 0;
   const progress = ((totalSeconds - remainingSeconds) / totalSeconds) * 100;

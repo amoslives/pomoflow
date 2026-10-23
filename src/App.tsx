@@ -134,7 +134,9 @@ export default function App() {
                 onChangeWorkMinutes={minutes => changeSetting(() => timer.handleWorkDurationChange(minutes))}
                 onChangeBreakMinutes={minutes => changeSetting(() => timer.handleBreakDurationChange(minutes))}
                 onChangeLongBreakMinutes={minutes => changeSetting(() => timer.handleLongBreakDurationChange(minutes))}
-                keepAwake={wakeLockSupported ? keepAwake : null} onChangeKeepAwake={setKeepAwake} />
+                keepAwake={wakeLockSupported ? keepAwake : null} onChangeKeepAwake={setKeepAwake}
+                notificationsOff={timer.notificationsOff} onAllowNotifications={timer.requestNotifications}
+                lateAlert={timer.lateAlert} />
               <TaskList tasks={sync.tasks} syncKey={sync.syncKey} syncStatus={sync.syncStatus}
                 onOpenSyncModal={() => setIsSyncModalOpen(true)}
                 onAddTask={title => { playClickSound(); sync.updateTasks([createTask(title), ...sync.tasks]); }}

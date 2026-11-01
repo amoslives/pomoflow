@@ -66,8 +66,12 @@ function readSession(): Session {
     && value.longBreakMinutes! >= LONG_BREAK_MIN && value.longBreakMinutes! <= LONG_BREAK_MAX ? value.longBreakMinutes! : 15;
   const sessionsSinceLongBreak = Number.isInteger(value.sessionsSinceLongBreak)
     && value.sessionsSinceLongBreak! >= 0 && value.sessionsSinceLongBreak! < SESSIONS_PER_LONG_BREAK ? value.sessionsSinceLongBreak! : 0;
+  // Only an explicit refresh continues a saved deadline. A new visit (including
+  // a restored tab) resumes paused at the last checkpoint, not at the wall clock.
+  const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
   return {
-    ...value, longBreakMinutes, sessionsSinceLongBreak, longBreak: value.mode === 'break' && value.longBreak === true,
+    ...value, endsAt: navigation?.type === 'reload' ? value.endsAt : null,
+    longBreakMinutes, sessionsSinceLongBreak, longBreak: value.mode === 'break' && value.longBreak === true,
     focusStats: normalizeFocusStats(value.focusStats),
   } as Session;
 }
@@ -106,11 +110,23 @@ export function usePomodoro() {
     setTimeLeft(next.endsAt === null ? next.remaining : secondsRemaining(next.endsAt));
   }, []);
 
+  // Keep a recovery point even if the browser kills the app without pagehide.
+  // This updates storage/the ref, not React state; the live deadline is unchanged.
+  const checkpoint = useCallback(() => {
+    const value = current.current;
+    if (value.endsAt === null) return;
+    const remaining = secondsRemaining(value.endsAt);
+    if (remaining === value.remaining) return;
+    const next = { ...value, remaining };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    current.current = next;
+  }, []);
+
   const tick = useCallback(() => {
     const value = current.current;
     if (value.endsAt === null) return;
     const remaining = secondsRemaining(value.endsAt);
-    if (remaining > 0) { setTimeLeft(remaining); return; }
+    if (remaining > 0) { checkpoint(); setTimeLeft(remaining); return; }
     const work = value.mode === 'work';
     const lateSeconds = Math.floor((Date.now() - value.endsAt) / 1000);
     setLateAlert(lateSeconds >= LATE_ALERT_SECONDS ? { interval: currentInterval(value), seconds: lateSeconds } : null);
@@ -137,7 +153,7 @@ export function usePomodoro() {
       : autoStart
         ? `Your ${value.workMinutes} minute work session has started.`
         : `Timer paused. Press Start for your ${value.workMinutes} minute work session.`);
-  }, [commit]);
+  }, [commit, checkpoint]);
 
   // Follows changes made in the browser's site settings while the app is open
   useEffect(() => {
@@ -177,20 +193,44 @@ export function usePomodoro() {
     // Opening, focusing or using the app is a response; it must count before a catch-up tick
     const respond = () => { if (document.visibilityState === 'visible') respondedRef.current = true; };
     const respondAndTick = () => { respond(); tick(); };
+    // pagehide also fires on refresh, so save the deadline and let the next
+    // document's navigation type decide whether to continue it.
+    let departed: Session | null = null;
+    const leave = () => {
+      checkpoint();
+      departed = { ...current.current, endsAt: null };
+      // Stop callbacks in this document too, including focus/visibility events
+      // delivered before pageshow when returning from the back/forward cache.
+      current.current = departed;
+    };
+    const returnFromHistory = (event: PageTransitionEvent) => {
+      // A back/forward-cache restore reuses this hook instead of readSession.
+      if (event.persisted && departed) {
+        commit(departed);
+        departed = null;
+      }
+    };
+    // Persist a reopened, paused record before a subsequent refresh. Leave a
+    // first visit's legacy fallback alone until the timer is actually changed.
+    if (localStorage.getItem(STORAGE_KEY) !== null) commit(current.current);
     tick();
     const interval = window.setInterval(tick, 1000);
+    window.addEventListener('pagehide', leave);
+    window.addEventListener('pageshow', returnFromHistory);
     window.addEventListener('focus', respondAndTick);
     document.addEventListener('visibilitychange', respondAndTick);
     window.addEventListener('pointerdown', respond, true);
     window.addEventListener('keydown', respond, true);
     return () => {
       clearInterval(interval);
+      window.removeEventListener('pagehide', leave);
+      window.removeEventListener('pageshow', returnFromHistory);
       window.removeEventListener('focus', respondAndTick);
       document.removeEventListener('visibilitychange', respondAndTick);
       window.removeEventListener('pointerdown', respond, true);
       window.removeEventListener('keydown', respond, true);
     };
-  }, [tick]);
+  }, [tick, commit, checkpoint]);
 
   const toggleTimer = useCallback(() => {
     tick();

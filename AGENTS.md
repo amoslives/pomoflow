@@ -32,7 +32,7 @@ The look is a one-bit classic desktop (menu bar, pinstriped window title bars, b
 - The `@` path alias maps to the **repo root**, not `src/`.
 - `vite.config.ts` `DISABLE_HMR` logic is marked "Do not modify" — leave it as is.
 - `.data/tasks.sqlite` is local runtime state. `server.ts` imports `.data/tasks.json` once and retains that old file as a backup.
-- Timer state and focus credit share the atomic `pomodoro_session_v2` local-storage record. Completion effects stay outside React state updaters.
+- Timer state and focus credit share the atomic `pomodoro_session_v2` local-storage record. Completion effects stay outside React state updaters. Running timers checkpoint remaining seconds on ticks and pagehide; only reload navigation restores the running deadline. New visits and back/forward-cache returns restore paused without awarding time away. Visibility changes alone do not pause the timer.
 - `wrangler.toml` contains the production D1 and legacy-KV binding IDs; treat it as the Pages configuration source of truth.
 - D1 schema changes belong in numbered files under `migrations/`.
 - `public/404.html` makes Cloudflare Pages return a real 404 for unknown paths; without it Pages serves `index.html` with status 200 for every path. `server.ts` production mode does the same.

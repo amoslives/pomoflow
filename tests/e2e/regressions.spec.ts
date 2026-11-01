@@ -1,4 +1,7 @@
 import { expect, test } from '@playwright/test';
+import { preserveNavigationTiming } from '../helpers/navigation-timing';
+
+test.beforeEach(async ({ context }) => { await preserveNavigationTiming(context); });
 
 test('a throwing notification cannot lose a finished session', async ({ page }) => {
   await page.addInitScript(() => {
@@ -94,7 +97,7 @@ test('browser shortcuts, repeat, and modal keys do not control the timer', async
   await expect(page.getByRole('button', { name: /^start$/i })).toBeVisible();
 });
 
-test('paused sessions and overdue sessions survive relaunch without duplicate credit', async ({ page }) => {
+test('paused sessions and overdue sessions survive refresh without duplicate credit', async ({ page }) => {
   await page.clock.install();
   await page.goto('/');
   await page.getByRole('button', { name: /^start$/i }).click();
@@ -104,12 +107,9 @@ test('paused sessions and overdue sessions survive relaunch without duplicate cr
   await expect(page.getByText('24:00', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /^start$/i })).toBeVisible();
   await page.getByRole('button', { name: /^start$/i }).click();
-  // Simulate an OS-killed app: no callbacks run before the saved deadline passes.
-  await page.evaluate(() => {
-    const value = JSON.parse(localStorage.getItem('pomodoro_session_v2')!);
-    value.endsAt = Date.now() - 10_000;
-    localStorage.setItem('pomodoro_session_v2', JSON.stringify(value));
-  });
+  // The same tab is refreshed after suspension, with no completion callback yet.
+  const endsAt = await page.evaluate(() => JSON.parse(localStorage.getItem('pomodoro_session_v2')!).endsAt);
+  await page.clock.setSystemTime(endsAt + 10_000);
   await page.reload();
   await expect(page.getByText('1 timer completed', { exact: true })).toBeVisible();
   await page.reload();

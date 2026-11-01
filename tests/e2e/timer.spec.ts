@@ -1,4 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
+import { preserveNavigationTiming } from '../helpers/navigation-timing';
+
+test.beforeEach(async ({ context }) => { await preserveNavigationTiming(context); });
 
 // A paused clock keeps the countdown exact between steps
 async function openWithPausedClock(page: Page) {
